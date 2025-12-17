@@ -162,7 +162,7 @@ export default function TechnicianDashboard() {
             <div className="sticky top-6 z-50 flex flex-col lg:flex-row items-center justify-between gap-4 mb-8 pointer-events-none">
 
                 {/* BRAND */}
-                <div className="flex items-center gap-4 w-full lg:w-auto pointer-events-auto bg-white/40 backdrop-blur-md p-2 rounded-full border border-white/50 shadow-sm">
+                <div className="flex items-center justify-center lg:justify-start gap-4 w-full lg:w-auto pointer-events-auto bg-white/40 backdrop-blur-md p-2 rounded-full border border-white/50 shadow-sm">
                     <div className="h-10 w-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-200">
                         P
                     </div>
@@ -173,7 +173,7 @@ export default function TechnicianDashboard() {
                 </div>
 
                 {/* RIGHT CONTROLS */}
-                <div className="flex items-center gap-3 w-full lg:w-auto justify-end pointer-events-auto">
+                <div className="flex items-center justify-center lg:justify-end gap-3 w-full lg:w-auto pointer-events-auto">
                     <div className="glass-nav px-4 py-2 flex items-center gap-2 bg-white/40">
                         <MapPin size={14} className="text-indigo-600" />
                         <span className="text-xs font-bold text-slate-700 capitalize">{userData.locationId} Store</span>
@@ -260,7 +260,7 @@ export default function TechnicianDashboard() {
                                 onClick={handlePunch}
                                 disabled={loadingLocation}
                                 className={`
-                                    relative z-10 w-48 h-48 rounded-full flex flex-col items-center justify-center 
+                                    relative z-10 w-40 h-40 sm:w-48 sm:h-48 rounded-full flex flex-col items-center justify-center 
                                     transition-all duration-500 shadow-2xl
                                     ${status === 'in'
                                         ? 'bg-gradient-to-br from-white to-green-50 border-4 border-green-200 shadow-green-300/50 scale-105'

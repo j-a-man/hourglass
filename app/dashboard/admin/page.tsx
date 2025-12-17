@@ -141,7 +141,7 @@ export default function AdminDashboard() {
             <div className="sticky top-6 z-50 flex flex-col lg:flex-row items-center justify-between gap-4 mb-8 pointer-events-none">
 
                 {/* BRAND */}
-                <div className="flex items-center gap-4 w-full lg:w-auto pointer-events-auto bg-white/40 backdrop-blur-md p-2 rounded-full border border-white/50 shadow-sm">
+                <div className="flex items-center justify-center lg:justify-start gap-4 w-full lg:w-auto pointer-events-auto bg-white/40 backdrop-blur-md p-2 rounded-full border border-white/50 shadow-sm">
                     <div className="h-10 w-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-200">
                         P
                     </div>
@@ -151,17 +151,17 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* NAV PILLS */}
-                <div className="glass-nav flex items-center gap-1 p-1 pointer-events-auto shadow-xl shadow-indigo-100/20 bg-white/30">
+                {/* NAV PILLS - Scrollable on mobile */}
+                <div className="glass-nav flex items-center gap-1 p-1 pointer-events-auto shadow-xl shadow-indigo-100/20 bg-white/30 overflow-x-auto max-w-full no-scrollbar">
                     <NavButton label="Dashboard" isActive={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} />
                     <NavButton label="Employees" isActive={activeTab === "employees"} onClick={() => setActiveTab("employees")} />
                     <NavButton label="Time Logs" isActive={activeTab === "logs"} onClick={() => setActiveTab("logs")} />
                     <NavButton label="Finance" isActive={activeTab === "finance"} onClick={() => setActiveTab("finance")} />
                 </div>
 
-                {/* RIGHT CONTROLS */}
-                <div className="flex items-center gap-3 w-full lg:w-auto justify-end pointer-events-auto">
-                    <div className="glass-nav px-1 py-1 flex items-center bg-white/40">
+                {/* RIGHT CONTROLS - Stacked/Scrollable on mobile */}
+                <div className="flex items-center justify-center lg:justify-end gap-3 w-full lg:w-auto pointer-events-auto">
+                    <div className="glass-nav px-1 py-1 flex items-center bg-white/40 overflow-x-auto max-w-[200px] lg:max-w-none no-scrollbar">
                         {LOCATIONS.map(loc => (
                             <button
                                 key={loc.id}

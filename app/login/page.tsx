@@ -129,7 +129,7 @@ export default function LoginPage() {
                                         id="email"
                                         type="email"
                                         placeholder="name@pharmacy.com"
-                                        className="glass-input pl-14 h-12 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 rounded-full"
+                                        className="glass-input pl-14 h-12 text-base md:text-sm text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 rounded-full"
                                         value={email}
                                         onChange={(e) => {
                                             setEmail(e.target.value)
@@ -163,7 +163,7 @@ export default function LoginPage() {
                                     <Input
                                         id="password"
                                         type="password"
-                                        className="glass-input pl-14 h-12 text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 rounded-full"
+                                        className="glass-input pl-14 h-12 text-base md:text-sm text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/20 rounded-full"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         required
