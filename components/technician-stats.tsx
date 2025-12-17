@@ -20,16 +20,16 @@ export function TechnicianStats() {
 
         const fetchWeeklyStats = async () => {
             try {
-                // Calculate start of week (Sunday)
+                // Calculate start of period (14 days ago)
                 const now = new Date()
-                const startOfWeek = new Date(now)
-                startOfWeek.setDate(now.getDate() - now.getDay())
-                startOfWeek.setHours(0, 0, 0, 0)
+                const startOfPeriod = new Date(now)
+                startOfPeriod.setDate(now.getDate() - 13) // 14 days including today
+                startOfPeriod.setHours(0, 0, 0, 0)
 
                 const q = query(
                     collection(db, "time_logs"),
                     where("userId", "==", user.uid),
-                    where("timestamp", ">=", Timestamp.fromDate(startOfWeek))
+                    where("timestamp", ">=", Timestamp.fromDate(startOfPeriod))
                 )
 
                 const snapshot = await getDocs(q)
@@ -94,7 +94,7 @@ export function TechnicianStats() {
                 <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
                     <DollarSign size={48} className="text-green-600" />
                 </div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">This Week</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">Bi-Weekly Period</p>
                 <h3 className="text-2xl font-black text-slate-800">
                     {formatter.format(stats.earnings)}
                 </h3>

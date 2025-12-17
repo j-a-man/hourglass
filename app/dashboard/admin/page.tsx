@@ -4,9 +4,15 @@ import { useState, useEffect } from "react"
 import { useAuth } from "@/components/auth-context"
 import { Users, Clock, Activity, CreditCard, Bell, MapPin } from "lucide-react"
 import { InviteUserDialog } from "@/components/invite-user-dialog"
+import { AddShiftDialog } from "@/components/add-shift-dialog"
+import { ShiftList } from "@/components/shift-list"
+import { AdminScheduleCalendar } from "@/components/admin-schedule-calendar"
 import { EmployeeList } from "@/components/employee-list"
 import { RecentActivity } from "@/components/recent-activity"
-import { SeedDataButton } from "@/components/seed-data-button"
+import { AdminTimeLogs } from "@/components/admin-time-logs"
+import { AdminFinance } from "@/components/admin-finance"
+import { GoogleCalendarSync } from "@/components/google-calendar-sync"
+import { DuplicateShiftCleaner } from "@/components/duplicate-shift-cleaner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
@@ -22,6 +28,7 @@ import { Settings, LogOut, User as UserIcon } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { signOut } from "firebase/auth"
 import { useRouter } from "next/navigation"
+import { Calendar } from "lucide-react"
 
 const LOCATIONS = [
     { id: "north", label: "Roslyn Pharmacy" },
@@ -38,6 +45,7 @@ interface ClockedInUser {
 
 export default function AdminDashboard() {
     const { userData } = useAuth()
+    const [locations, setLocations] = useState<any[]>([])
     const [selectedLocation, setSelectedLocation] = useState<string>(userData?.locationId || "north")
     const [activeTab, setActiveTab] = useState("dashboard")
     const [totalEmployees, setTotalEmployees] = useState(0)
@@ -45,34 +53,138 @@ export default function AdminDashboard() {
     const [clockedInUsers, setClockedInUsers] = useState<ClockedInUser[]>([])
     const [loading, setLoading] = useState(true)
 
-    // Fetch real-time data
+    const [stats, setStats] = useState({
+        laborCost: 0,
+        adherence: 0,
+        overtimeRisk: 0,
+        onTimeRate: 0
+    })
+
+    // Fetch Locations & Data
     useEffect(() => {
-        fetchDashboardData()
+        const fetchLocations = async () => {
+            try {
+                const q = query(collection(db, "locations"))
+                const snapshot = await getDocs(q)
+                const locs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                setLocations(locs)
+            } catch (err) {
+                console.error("Error fetching locations:", err)
+            }
+        }
+        fetchLocations()
+    }, [])
+
+    useEffect(() => {
+        if (selectedLocation) {
+            fetchDashboardData()
+        }
     }, [selectedLocation])
 
     const fetchDashboardData = async () => {
         setLoading(true)
         try {
-            // 1. Fetch total employees at selected location
+            // Dates for "This Week"
+            const now = new Date()
+            const startOfWeek = new Date(now)
+            startOfWeek.setDate(now.getDate() - now.getDay()) // Sunday
+            startOfWeek.setHours(0, 0, 0, 0)
+
+            // 1. Fetch Users (for Rates & Total Count)
             const usersQuery = query(
                 collection(db, "users"),
                 where("locationId", "==", selectedLocation)
             )
             const usersSnapshot = await getDocs(usersQuery)
+            const usersMap = new Map()
+            usersSnapshot.docs.forEach(doc => {
+                usersMap.set(doc.id, { ...doc.data(), id: doc.id })
+            })
             setTotalEmployees(usersSnapshot.size)
 
-            // 2. Fetch all time logs to find currently clocked-in staff
-            // 2. Fetch all time logs to find currently clocked-in staff request
+            // 2. Fetch Weekly Logs (for Cost, Actual Hours, Overtime)
+            // Note: In production, use a composite index on [locationId, timestamp]
+            // For now, fetching all loc logs and filtering client-side for "this week" to avoid index hell during dev
             const logsQuery = query(
                 collection(db, "time_logs"),
                 where("locationId", "==", selectedLocation)
-                // orderBy("timestamp", "desc") // Removed to avoid composite index requirement
             )
             const logsSnapshot = await getDocs(logsQuery)
-
             const allLogs = logsSnapshot.docs.map(doc => doc.data())
 
-            // Sort client-side
+            // Filter logs for this week
+            const weeklyLogs = allLogs.filter(log => log.timestamp.toDate() >= startOfWeek)
+
+            // 3. Fetch Weekly Shifts (for Adherence & On-Time)
+            const shiftsQuery = query(
+                collection(db, "shifts"),
+                where("locationId", "==", selectedLocation),
+                where("startTime", ">=", startOfWeek)
+            )
+            const shiftsSnapshot = await getDocs(shiftsQuery)
+            const weeklyShifts = shiftsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+
+            // --- CALCULATIONS ---
+
+            let totalLaborCost = 0
+            let totalActualHours = 0
+            const userHours = new Map<string, number>()
+
+            // A. Process Logs for Cost & Hours
+            // Sort logs by time for accurate duration calc
+            weeklyLogs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
+
+            // Group logs by user
+            const logsByUser = new Map<string, any[]>()
+            weeklyLogs.forEach(log => {
+                if (!logsByUser.has(log.userId)) logsByUser.set(log.userId, [])
+                logsByUser.get(log.userId)?.push(log)
+            })
+
+            logsByUser.forEach((logs, userId) => {
+                let ms = 0
+                for (let i = 0; i < logs.length; i++) {
+                    if (logs[i].type === "in") {
+                        const next = logs[i + 1]
+                        if (next && next.type === "out") {
+                            ms += next.timestamp.toMillis() - logs[i].timestamp.toMillis()
+                        } else if (!next) {
+                            // Currently clocked in (add time until now)
+                            ms += Date.now() - logs[i].timestamp.toMillis()
+                        }
+                    }
+                }
+
+                const hours = ms / (1000 * 60 * 60)
+                const rate = usersMap.get(userId)?.hourlyRate || 0
+
+                totalLaborCost += hours * rate
+                totalActualHours += hours
+                userHours.set(userId, hours)
+            })
+
+            // B. Process Shifts for Scheduled Hours
+            let totalScheduledHours = 0
+            weeklyShifts.forEach((shift: any) => {
+                const start = shift.startTime.toDate()
+                const end = shift.endTime.toDate()
+                totalScheduledHours += (end.getTime() - start.getTime()) / (1000 * 60 * 60)
+            })
+
+            // C. Final Metrics
+            const adherence = totalScheduledHours > 0 ? (totalActualHours / totalScheduledHours) * 100 : 0
+            const overtimeRisk = Array.from(userHours.values()).filter(h => h > 35).length
+
+            setStats({
+                laborCost: totalLaborCost,
+                adherence: Math.min(adherence, 100), // Cap at 100 for display
+                overtimeRisk,
+                onTimeRate: 0 // Placeholder
+            })
+
+            // --- END CALCULATIONS ---
+
+            // Sort client-side for Recent Activity View
             allLogs.sort((a, b) => {
                 const t1 = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0
                 const t2 = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0
@@ -135,10 +247,18 @@ export default function AdminDashboard() {
         router.push("/login")
     }
 
+    // Currency Formatter
+    const currency = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    })
+
     return (
-        <div className="min-h-screen p-6 font-sans relative z-0">
+        <div className="min-h-screen px-4 sm:px-8 lg:px-12 py-8 font-sans relative z-0 max-w-[1700px] mx-auto">
             {/* --- FLOATING STICKY NAVIGATION --- */}
-            <div className="sticky top-6 z-50 flex flex-col lg:flex-row items-center justify-between gap-4 mb-8 pointer-events-none">
+            <div className="sticky top-4 sm:top-6 z-50 flex flex-col lg:flex-row items-center justify-between gap-4 mb-8 pointer-events-none">
 
                 {/* BRAND */}
                 <div className="flex items-center justify-center lg:justify-start gap-4 w-full lg:w-auto pointer-events-auto bg-white/40 backdrop-blur-md p-2 rounded-full border border-white/50 shadow-sm">
@@ -147,21 +267,22 @@ export default function AdminDashboard() {
                     </div>
                     <div className="pr-4 hidden sm:block">
                         <h1 className="text-sm font-bold text-slate-800 leading-tight">PharmaClock</h1>
-                        <p className="text-[10px] text-slate-500 font-medium tracking-wide">ADMIN</p>
+                        <p className="text-xs text-slate-500 font-medium tracking-wide">ADMIN</p>
                     </div>
                 </div>
 
                 {/* NAV PILLS - Scrollable on mobile */}
-                <div className="glass-nav flex items-center gap-1 p-1 pointer-events-auto shadow-xl shadow-indigo-100/20 bg-white/30 overflow-x-auto max-w-full no-scrollbar">
+                <div className="glass-nav flex items-center gap-1 p-1 pointer-events-auto shadow-xl shadow-indigo-100/20 bg-white/30 overflow-x-auto max-w-[90vw] lg:max-w-full no-scrollbar">
                     <NavButton label="Dashboard" isActive={activeTab === "dashboard"} onClick={() => setActiveTab("dashboard")} />
                     <NavButton label="Employees" isActive={activeTab === "employees"} onClick={() => setActiveTab("employees")} />
+                    <NavButton label="Schedule" isActive={activeTab === "schedule"} onClick={() => setActiveTab("schedule")} />
                     <NavButton label="Time Logs" isActive={activeTab === "logs"} onClick={() => setActiveTab("logs")} />
                     <NavButton label="Finance" isActive={activeTab === "finance"} onClick={() => setActiveTab("finance")} />
                 </div>
 
                 {/* RIGHT CONTROLS - Stacked/Scrollable on mobile */}
                 <div className="flex items-center justify-center lg:justify-end gap-3 w-full lg:w-auto pointer-events-auto">
-                    <div className="glass-nav px-1 py-1 flex items-center bg-white/40 overflow-x-auto max-w-[200px] lg:max-w-none no-scrollbar">
+                    <div className="glass-nav px-1 py-1 flex items-center bg-white/40 overflow-x-auto max-w-[280px] sm:max-w-none no-scrollbar">
                         {LOCATIONS.map(loc => (
                             <button
                                 key={loc.id}
@@ -176,76 +297,80 @@ export default function AdminDashboard() {
                         ))}
                     </div>
 
-                    <button className="h-10 w-10 flex items-center justify-center glass-nav bg-white/40 hover:bg-white transition-colors">
-                        <Bell size={18} className="text-slate-600" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button className="h-10 w-10 flex items-center justify-center glass-nav bg-white/40 hover:bg-white transition-colors">
+                            <Bell size={18} className="text-slate-600" />
+                        </button>
 
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Avatar className="h-10 w-10 border-2 border-white shadow-md cursor-pointer hover:scale-105 transition-transform">
-                                <AvatarFallback className="bg-indigo-600 text-white font-bold">
-                                    {userData?.name?.[0] || "A"}
-                                </AvatarFallback>
-                            </Avatar>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 glass-card border-white/50 bg-white/80 backdrop-blur-xl">
-                            <DropdownMenuLabel>
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-slate-800">{userData?.name || "Admin"}</span>
-                                    <span className="text-xs text-slate-500 font-normal">{userData?.email || "Administrator"}</span>
-                                </div>
-                            </DropdownMenuLabel>
-                            <DropdownMenuSeparator className="bg-slate-200/50" />
-                            <DropdownMenuItem className="cursor-pointer text-slate-600 focus:text-indigo-600 focus:bg-indigo-50">
-                                <UserIcon className="mr-2 h-4 w-4" />
-                                <span>My Account</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="cursor-pointer text-slate-600 focus:text-indigo-600 focus:bg-indigo-50">
-                                <Settings className="mr-2 h-4 w-4" />
-                                <span>Settings</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator className="bg-slate-200/50" />
-                            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-700 focus:bg-red-50">
-                                <LogOut className="mr-2 h-4 w-4" />
-                                <span>Log out</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Avatar className="h-10 w-10 border-2 border-white shadow-md cursor-pointer hover:scale-105 transition-transform">
+                                    <AvatarFallback className="bg-indigo-600 text-white font-bold">
+                                        {userData?.name?.[0] || "A"}
+                                    </AvatarFallback>
+                                </Avatar>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56 glass-card border-white/50 bg-white/80 backdrop-blur-xl">
+                                <DropdownMenuLabel>
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-slate-800">{userData?.name || "Admin"}</span>
+                                        <span className="text-xs text-slate-500 font-normal">{userData?.email || "Administrator"}</span>
+                                    </div>
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator className="bg-slate-200/50" />
+                                <DropdownMenuItem className="cursor-pointer text-slate-600 focus:text-indigo-600 focus:bg-indigo-50">
+                                    <UserIcon className="mr-2 h-4 w-4" />
+                                    <span>My Account</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="cursor-pointer text-slate-600 focus:text-indigo-600 focus:bg-indigo-50">
+                                    <Settings className="mr-2 h-4 w-4" />
+                                    <span>Settings</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="bg-slate-200/50" />
+                                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-700 focus:bg-red-50">
+                                    <LogOut className="mr-2 h-4 w-4" />
+                                    <span>Log out</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 </div>
             </div>
 
             {/* --- DASHBOARD CONTENT --- */}
             {activeTab === "dashboard" && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                        <GlassStatCard
-                            label="Total Balance"
-                            value="$143,624"
-                            icon={<CreditCard size={24} className="text-slate-700" />}
-                        />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                         <GlassStatCard
                             label="Active Staff"
                             value={loading ? "..." : activeStaff.toString()}
-                            icon={<Clock size={24} className="text-slate-700" />}
+                            icon={<Users size={24} className="text-slate-700" />}
                             subtext="Clocked In"
                         />
                         <GlassStatCard
-                            label="Total Employees"
-                            value={loading ? "..." : totalEmployees.toString()}
-                            icon={<Users size={24} className="text-slate-700" />}
-                            subtext="Registered"
+                            label="Labor Cost"
+                            value={loading ? "..." : currency.format(stats.laborCost)}
+                            icon={<CreditCard size={24} className="text-slate-700" />}
+                            subtext="This Week"
                         />
                         <GlassStatCard
-                            label="Payroll Est."
-                            value="$3,287"
+                            label="Schedule Adherence"
+                            value={loading ? "..." : `${stats.adherence.toFixed(0)}%`}
                             icon={<Activity size={24} className="text-slate-700" />}
-                            subtext="This Week"
+                            subtext="Target: 95%"
+                        />
+                        <GlassStatCard
+                            label="Overtime Risk"
+                            value={loading ? "..." : stats.overtimeRisk.toString()}
+                            icon={<Clock size={24} className="text-slate-700" />}
+                            subtext="Staff > 35hrs"
+                            highlight={stats.overtimeRisk > 0}
                         />
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2 space-y-6">
-                            <div className="glass-card p-8 min-h-[400px] flex flex-col relative overflow-hidden">
+                            <div className="glass-card p-4 sm:p-8 min-h-[400px] flex flex-col relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-200/30 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
 
                                 <div className="flex justify-between items-start mb-8 relative z-10">
@@ -290,58 +415,112 @@ export default function AdminDashboard() {
                         </div>
 
                         <div className="space-y-6">
-                            <div className="glass-card p-8 relative overflow-hidden">
-                                <h3 className="font-bold text-slate-800 mb-2">Efficiency Rate</h3>
-                                <p className="text-xs text-slate-500 mb-6">Based on shift coverage</p>
-                                <div className="flex justify-center mb-4">
-                                    <div className="relative h-40 w-40">
-                                        <svg className="h-full w-full transform -rotate-90">
-                                            <circle cx="80" cy="80" r="70" stroke="rgba(255,255,255,0.5)" strokeWidth="12" fill="transparent" />
-                                            <circle cx="80" cy="80" r="70" stroke="#6366f1" strokeWidth="12" fill="transparent" strokeDasharray={440} strokeDashoffset={440 - (440 * 51) / 100} strokeLinecap="round" />
-                                        </svg>
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                            <span className="text-4xl font-bold text-slate-800">51%</span>
-                                        </div>
+                            <div className="glass-card p-6 flex flex-col h-full min-h-[400px]">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <h3 className="font-bold text-slate-800">Upcoming Shifts</h3>
+                                        <p className="text-xs text-slate-500">Next scheduled duties</p>
                                     </div>
+                                    <button
+                                        onClick={() => setActiveTab("schedule")}
+                                        className="text-xs text-indigo-600 font-bold hover:underline"
+                                    >
+                                        View Schedule
+                                    </button>
                                 </div>
-                                <button className="w-full py-3 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all">
-                                    View Analytics
-                                </button>
+                                <div className="overflow-y-auto custom-scrollbar flex-1 -mx-2 px-2 max-h-[400px]">
+                                    <ShiftList locationId={selectedLocation} />
+                                </div>
                             </div>
                         </div>
+                    </div>
+
+                    {/* RECENT ACTIVITY ROW */}
+                    <div className="glass-card p-4 sm:p-8">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Recent Activity</h2>
+                                <p className="text-slate-500">Live logs from {locations.find(l => l.id === selectedLocation)?.label || "Selected Location"}</p>
+                            </div>
+                            <button
+                                onClick={() => setActiveTab("logs")}
+                                className="glass-nav px-4 py-2 text-xs font-bold text-slate-600 hover:bg-white bg-white/50"
+                            >
+                                Show More
+                            </button>
+                        </div>
+                        <RecentActivity locationId={selectedLocation} limitCount={3} />
                     </div>
                 </div>
             )}
 
             {activeTab === "employees" && (
-                <div className="glass-card p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="glass-card p-4 sm:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex justify-between items-center mb-6">
                         <div>
                             <h2 className="text-2xl font-bold text-slate-800">Employee Directory</h2>
                             <p className="text-slate-500">Manage staff at {selectedLocation}</p>
                         </div>
-                        <SeedDataButton />
                         <InviteUserDialog />
                     </div>
                     <EmployeeList locationId={selectedLocation} />
                 </div>
-            )}
+            )
+            }
 
-            {activeTab === "logs" && (
-                <div className="glass-card p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="flex justify-between items-center mb-6">
-                        <div>
-                            <h2 className="text-2xl font-bold text-slate-800">Time Logs</h2>
-                            <p className="text-slate-500">Recent activity at {selectedLocation}</p>
+            {
+                activeTab === "schedule" && (
+                    <div className="h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* Calendar handles its own header/dialog */}
+                        <div className="mb-4 flex justify-between items-center">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Shift Schedule</h2>
+                                <p className="text-slate-500">Manage upcoming shifts and assignments for {locations.find(l => l.id === selectedLocation)?.label}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <DuplicateShiftCleaner />
+                                <GoogleCalendarSync locationId={selectedLocation} onSuccess={() => {
+                                    // Force refresh or trigger update if needed
+                                    // Currently AdminScheduleCalendar re-fetches on mount or prop change. 
+                                    // Ideally we pass a refresh trigger, but for now simple mount is okay or user can refresh.
+                                    // Actually, better to trigger a simple navigation refresh or context update.
+                                    // A simple toast is handled in the component. We can just let it be.
+                                }} />
+                            </div>
                         </div>
-                        <button className="glass-nav px-4 py-2 text-xs font-bold text-slate-600 hover:bg-white bg-white/50">
-                            Download CSV
-                        </button>
+                        <div className="min-h-[600px]">
+                            <AdminScheduleCalendar locationId={selectedLocation} />
+                        </div>
                     </div>
-                    <RecentActivity locationId={selectedLocation} />
-                </div>
-            )}
-        </div>
+                )}
+
+            {
+                activeTab === "logs" && (
+                    <div className="glass-card p-4 sm:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Time Logs & Performance</h2>
+                                <p className="text-slate-500">Bi-Weekly overview for {locations.find(l => l.id === selectedLocation)?.label}</p>
+                            </div>
+                        </div>
+                        <AdminTimeLogs locationId={selectedLocation} />
+                    </div>
+                )
+            }
+            {
+                activeTab === "finance" && (
+                    <div className="glass-card p-4 sm:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Financial Overview</h2>
+                                <p className="text-slate-500">Payroll estimates and labor cost analysis for {locations.find(l => l.id === selectedLocation)?.label}</p>
+                            </div>
+                        </div>
+                        <AdminFinance locationId={selectedLocation} />
+                    </div>
+                )
+            }
+        </div >
     )
 }
 

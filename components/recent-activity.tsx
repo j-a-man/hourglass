@@ -13,7 +13,7 @@ interface TimeLog {
     locationId: string
 }
 
-export function RecentActivity({ locationId }: { locationId: string }) {
+export function RecentActivity({ locationId, limitCount }: { locationId: string, limitCount?: number }) {
     const [logs, setLogs] = useState<(TimeLog & { userName: string })[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -21,45 +21,46 @@ export function RecentActivity({ locationId }: { locationId: string }) {
         const fetchLogs = async () => {
             setLoading(true)
             try {
-                // 1. Fetch recent logs (limit 20)
+                // 1. Fetch recent logs (limit 20 or limitCount if larger, but 20 is safe default for "recent")
                 const q = query(
                     collection(db, "time_logs"),
                     orderBy("timestamp", "desc"),
-                    limit(20)
+                    limit(limitCount ? limitCount + 5 : 20) // Fetch a bit more than needed
                 )
 
                 const querySnapshot = await getDocs(q)
                 const allLogs = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as TimeLog))
 
-                // 2. Filter by location (Client-side to avoid composite index requirement for now)
+                // 2. Filter by location (Client-side)
                 const locationLogs = allLogs.filter(log => log.locationId === locationId)
 
                 // 3. Extract Unique User IDs
                 const userIds = Array.from(new Set(locationLogs.map(log => log.userId)))
                 const usersMap: Record<string, string> = {}
 
-                // 4. Fetch User Details in Parallel (Direct Doc Lookup)
+                // 4. Fetch User Details
                 await Promise.all(
                     userIds.map(async (uid) => {
                         try {
-                            const userSnap = await getDoc(doc(db, "users", uid))
-                            if (userSnap.exists()) {
-                                usersMap[uid] = userSnap.data().name
-                            } else {
-                                usersMap[uid] = "Unknown User"
+                            if (!usersMap[uid]) { // Avoid duplicate fetches if we cache or similar
+                                const userSnap = await getDoc(doc(db, "users", uid))
+                                usersMap[uid] = userSnap.exists() ? userSnap.data().name : "Unknown User"
                             }
                         } catch (e) {
-                            console.warn(`Failed to fetch user ${uid}`, e)
                             usersMap[uid] = "Unknown"
                         }
                     })
                 )
 
-                // 5. Merge Data
-                const enrichedLogs = locationLogs.map(log => ({
+                // 5. Merge & Limit
+                let enrichedLogs = locationLogs.map(log => ({
                     ...log,
                     userName: usersMap[log.userId] || "Unknown User"
                 }))
+
+                if (limitCount) {
+                    enrichedLogs = enrichedLogs.slice(0, limitCount)
+                }
 
                 setLogs(enrichedLogs)
             } catch (error) {
@@ -70,7 +71,7 @@ export function RecentActivity({ locationId }: { locationId: string }) {
         }
 
         fetchLogs()
-    }, [locationId])
+    }, [locationId, limitCount])
 
     if (loading) {
         return <div className="text-center py-4 text-slate-400 text-sm">Loading activity...</div>

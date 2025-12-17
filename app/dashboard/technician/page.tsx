@@ -22,10 +22,7 @@ import { UpcomingShifts } from "@/components/upcoming-shifts"
 import { WeeklyCalendar } from "@/components/weekly-calendar"
 
 // 📍 PHARMACY COORDINATES
-const LOCATIONS = {
-    north: { lat: 40.775923, lng: -73.665518, name: "Roslyn Pharmacy" },
-    south: { lat: 42.089636, lng: -75.970020, name: "South Store" }
-}
+
 const MAX_DISTANCE_METERS = 500
 
 export default function TechnicianDashboard() {
@@ -42,11 +39,28 @@ export default function TechnicianDashboard() {
     const [loadingLocation, setLoadingLocation] = useState(false)
     const [error, setError] = useState("")
     const [recentLogs, setRecentLogs] = useState<any[]>([])
+    const [locations, setLocations] = useState<Record<string, any>>({})
 
-    // 1. FETCH CURRENT STATUS
+    // 1. FETCH STATUS & LOCATIONS
     useEffect(() => {
-        const fetchStatus = async () => {
+        const initData = async () => {
             if (!user) return
+
+            // A. Fetch Locations
+            try {
+                const locQ = query(collection(db, "locations"))
+                const locSnap = await getDocs(locQ)
+                const locs = locSnap.docs.reduce((acc, doc) => {
+                    const data = doc.data()
+                    acc[doc.id] = { ...data, id: doc.id }
+                    return acc
+                }, {} as Record<string, any>)
+                setLocations(locs)
+            } catch (err) {
+                console.error("Error fetching locations:", err)
+            }
+
+            // B. Fetch Logs
             try {
                 const q = query(
                     collection(db, "time_logs"),
@@ -56,14 +70,11 @@ export default function TechnicianDashboard() {
 
                 if (!snapshot.empty) {
                     const logs = snapshot.docs.map(d => d.data())
-
-                    // Sort by timestamp desc
                     logs.sort((a, b) => {
                         const t1 = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0
                         const t2 = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0
                         return t2 - t1
                     })
-
                     setRecentLogs(logs.slice(0, 5))
                     setLastLog(logs[0])
                     setStatus(logs[0].type === "in" ? "in" : "out")
@@ -74,7 +85,7 @@ export default function TechnicianDashboard() {
                 console.error("Error fetching status:", err)
             }
         }
-        fetchStatus()
+        initData()
     }, [user])
 
     if (!userData || !user) return null
@@ -108,17 +119,26 @@ export default function TechnicianDashboard() {
                 const userLat = position.coords.latitude
                 const userLng = position.coords.longitude
                 console.log("User Coords:", userLat, userLng) // Debugging
-                const assignedLoc = LOCATIONS[userData.locationId as keyof typeof LOCATIONS]
+
+                const assignedLoc = locations[userData.locationId]
 
                 if (assignedLoc) {
-                    const distance = getDistanceFromLatLonInMeters(userLat, userLng, assignedLoc.lat, assignedLoc.lng)
+                    // Firestore stores coords as a map { lat, lng } inside the doc
+                    const targetLat = assignedLoc.coords?.lat || assignedLoc.lat
+                    const targetLng = assignedLoc.coords?.lng || assignedLoc.lng
+
+                    const distance = getDistanceFromLatLonInMeters(userLat, userLng, targetLat, targetLng)
                     console.log(`Distance to ${assignedLoc.name}: ${distance.toFixed(0)}m`)
 
-                    if (distance > MAX_DISTANCE_METERS) {
-                        setError(`You are too far from ${assignedLoc.name} (${distance.toFixed(0)}m). You must be within ${MAX_DISTANCE_METERS}m.`)
+                    const maxDist = assignedLoc.radius || MAX_DISTANCE_METERS
+
+                    if (distance > maxDist) {
+                        setError(`You are too far from ${assignedLoc.name} (${distance.toFixed(0)}m). You must be within ${maxDist}m.`)
                         setLoadingLocation(false)
                         return
                     }
+                } else {
+                    console.warn("Location not found in DB:", userData.locationId)
                 }
 
                 try {
@@ -306,7 +326,7 @@ export default function TechnicianDashboard() {
 
                     {/* RIGHT COL: SHIFTS */}
                     <div className="space-y-6">
-                        <UpcomingShifts />
+                        <UpcomingShifts limit={3} />
 
                         {/* HELPER CARD */}
                         <div className="glass-card p-6 bg-gradient-to-br from-indigo-900 to-slate-900 text-white border-none">

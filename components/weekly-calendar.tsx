@@ -11,10 +11,10 @@ export function WeeklyCalendar() {
     const [dailyLogs, setDailyLogs] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
 
-    // Generate last 7 days sorted descending (today first)
-    const getLast7Days = () => {
+    // Generate last 14 days sorted descending (today first)
+    const getLast14Days = () => {
         const days = []
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 14; i++) {
             const d = new Date()
             d.setDate(d.getDate() - i)
             days.push(d)
@@ -27,10 +27,10 @@ export function WeeklyCalendar() {
 
         const fetchLogs = async () => {
             try {
-                // Get logs for last 7 days
+                // Get logs for last 14 days
                 const end = new Date()
                 const start = new Date()
-                start.setDate(start.getDate() - 7)
+                start.setDate(start.getDate() - 14)
 
                 const q = query(
                     collection(db, "time_logs"),
@@ -42,7 +42,7 @@ export function WeeklyCalendar() {
                 const logs = snapshot.docs.map(doc => doc.data())
 
                 // Group by date
-                const days = getLast7Days().map(date => {
+                const days = getLast14Days().map(date => {
                     // Find logs for this specific date
                     const dayLogs = logs.filter(log => {
                         const logDate = log.timestamp.toDate()
@@ -94,10 +94,10 @@ export function WeeklyCalendar() {
         <div className="glass-card p-6">
             <div className="flex items-center gap-2 mb-6 opacity-70">
                 <History size={18} className="text-slate-700" />
-                <span className="text-sm font-bold uppercase tracking-wide text-slate-700">Past 7 Days</span>
+                <span className="text-sm font-bold uppercase tracking-wide text-slate-700">Current Pay Period (14 Days)</span>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                 {dailyLogs.map((day, idx) => (
                     <div key={idx} className="flex gap-4">
                         {/* Date Col */}
