@@ -7,7 +7,7 @@ import { collection, query, where, getDocs, Timestamp } from "firebase/firestore
 import { History, CheckCircle2, Clock } from "lucide-react"
 
 export function WeeklyCalendar() {
-    const { user } = useAuth()
+    const { user, userData } = useAuth()
     const [dailyLogs, setDailyLogs] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
 
@@ -23,7 +23,8 @@ export function WeeklyCalendar() {
     }
 
     useEffect(() => {
-        if (!user) return
+        if (!user || !userData?.organizationId) return
+        const orgId = userData.organizationId
 
         const fetchLogs = async () => {
             try {
@@ -33,7 +34,7 @@ export function WeeklyCalendar() {
                 start.setDate(start.getDate() - 14)
 
                 const q = query(
-                    collection(db, "time_logs"),
+                    collection(db, "organizations", orgId, "time_entries"),
                     where("userId", "==", user.uid),
                     where("timestamp", ">=", Timestamp.fromDate(start))
                 )
@@ -86,7 +87,7 @@ export function WeeklyCalendar() {
         }
 
         fetchLogs()
-    }, [user])
+    }, [user, userData?.organizationId])
 
     if (loading) return <div className="animate-pulse h-48 bg-white/20 rounded-2xl w-full" />
 

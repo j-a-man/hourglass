@@ -12,13 +12,14 @@ interface UpcomingShiftsProps {
 }
 
 export function UpcomingShifts({ limit }: UpcomingShiftsProps) {
-    const { user } = useAuth()
+    const { user, userData } = useAuth()
     const [shifts, setShifts] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-        if (!user) return
+        if (!user || !userData?.organizationId) return
+        const orgId = userData.organizationId
 
         const fetchShifts = async () => {
             try {
@@ -27,7 +28,7 @@ export function UpcomingShifts({ limit }: UpcomingShiftsProps) {
                 today.setHours(0, 0, 0, 0)
 
                 let q = query(
-                    collection(db, "shifts"),
+                    collection(db, "organizations", orgId, "shifts"),
                     where("userId", "==", user.uid),
                     where("startTime", ">=", Timestamp.fromDate(today)),
                     orderBy("startTime", "asc")
@@ -56,7 +57,7 @@ export function UpcomingShifts({ limit }: UpcomingShiftsProps) {
         }
 
         fetchShifts()
-    }, [user, limit])
+    }, [user, userData?.organizationId, limit])
 
     if (loading) return <div className="animate-pulse h-24 bg-white/20 rounded-2xl w-full" />
 

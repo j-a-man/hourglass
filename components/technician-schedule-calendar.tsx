@@ -18,13 +18,14 @@ interface Shift {
 }
 
 export function TechnicianScheduleCalendar() {
-    const { user } = useAuth()
+    const { user, userData } = useAuth()
     const [currentDate, setCurrentDate] = useState(new Date())
     const [shifts, setShifts] = useState<Shift[]>([])
     const [loading, setLoading] = useState(true)
 
     const fetchShifts = async () => {
-        if (!user) return
+        if (!user || !userData?.organizationId) return
+        const orgId = userData.organizationId
         setLoading(true)
         try {
             // Get range for query
@@ -36,7 +37,7 @@ export function TechnicianScheduleCalendar() {
             const queryEnd = endOfWeek(end)
 
             const q = query(
-                collection(db, "shifts"),
+                collection(db, "organizations", orgId, "shifts"),
                 where("userId", "==", user.uid),
                 where("startTime", ">=", Timestamp.fromDate(queryStart)),
                 where("startTime", "<=", Timestamp.fromDate(queryEnd))
@@ -58,7 +59,7 @@ export function TechnicianScheduleCalendar() {
 
     useEffect(() => {
         fetchShifts()
-    }, [currentDate, user])
+    }, [currentDate, user, userData?.organizationId])
 
     const nextMonth = () => setCurrentDate(addMonths(currentDate, 1))
     const prevMonth = () => setCurrentDate(subMonths(currentDate, 1))

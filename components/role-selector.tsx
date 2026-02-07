@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 interface RoleSelectorProps {
-  onSelectRole: (role: "technician" | "admin") => void
+  onSelectRole: (role: "employee" | "admin") => void
 }
 
 export default function RoleSelector({ onSelectRole }: RoleSelectorProps) {
@@ -21,15 +21,15 @@ export default function RoleSelector({ onSelectRole }: RoleSelectorProps) {
 
         <div className="grid grid-cols-1 gap-4">
           <Card
-            onClick={() => onSelectRole("technician")}
+            onClick={() => onSelectRole("employee")}
             className="cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-primary"
           >
             <CardHeader>
-              <CardTitle>Technician</CardTitle>
+              <CardTitle>Employee</CardTitle>
               <CardDescription>Clock in and out, view your punches</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button className="w-full bg-primary hover:bg-primary/90">Continue as Technician</Button>
+              <Button className="w-full bg-primary hover:bg-primary/90">Continue as Employee</Button>
             </CardContent>
           </Card>
 

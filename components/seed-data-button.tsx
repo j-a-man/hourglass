@@ -6,10 +6,12 @@ import { db } from "@/lib/firebase"
 import { collection, addDoc, getDocs, query, where, updateDoc, doc, Timestamp } from "firebase/firestore"
 import { Database, Loader2, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
+import { useAuth } from "./auth-context"
 
 export function SeedDataButton() {
     const [loading, setLoading] = useState(false)
     const [done, setDone] = useState(false)
+    const { user, userData } = useAuth()
 
     const handleSeed = async () => {
         setLoading(true)
@@ -27,10 +29,11 @@ export function SeedDataButton() {
             })
             await Promise.all(updatePromises)
 
-            // 2. Create sample Shifts for the next 7 days for ALL users
-            // First, clear existing future shifts to avoid dupes (optional, skipping for safety)
+            // 2. Create sample Shifts for the next 7 days for this organization's users
+            if (!userData?.organizationId) return
+            const orgId = userData.organizationId
 
-            const shiftsCollection = collection(db, "shifts")
+            const shiftsCollection = collection(db, "organizations", orgId, "shifts")
             const today = new Date()
 
             // For each user, give them 3 shifts in the next week
@@ -65,7 +68,7 @@ export function SeedDataButton() {
                     locationId: userData.locationId || "north",
                     startTime: Timestamp.fromDate(shift1Start),
                     endTime: Timestamp.fromDate(shift1End),
-                    role: userData.role || "technician"
+                    role: userData.role || "employee"
                 })
 
                 await addDoc(shiftsCollection, {
@@ -74,7 +77,7 @@ export function SeedDataButton() {
                     locationId: userData.locationId || "north",
                     startTime: Timestamp.fromDate(shift2Start),
                     endTime: Timestamp.fromDate(shift2End),
-                    role: userData.role || "technician"
+                    role: userData.role || "employee"
                 })
 
                 await addDoc(shiftsCollection, {
@@ -83,7 +86,38 @@ export function SeedDataButton() {
                     locationId: userData.locationId || "north",
                     startTime: Timestamp.fromDate(shift3Start),
                     endTime: Timestamp.fromDate(shift3End),
-                    role: userData.role || "technician"
+                    role: userData.role || "employee"
+                })
+            }
+
+            // 3. REPAIR/CREATE Locations with Coordinates
+            const locationsToRepair = [
+                { id: "north", name: "North Pharmacy", address: "123 North St", lat: 42.08977, lng: -75.970381 },
+                { id: "downtown", name: "Downtown Clinic", address: "456 Main St", lat: 42.09, lng: -75.90 },
+                { id: "uptown", name: "Uptown Medical", address: "789 High Ave", lat: 42.11, lng: -75.92 },
+            ]
+
+            // We use setDoc with merge to ensure IDs match and coordinates exist
+            const { setDoc } = await import("firebase/firestore")
+            for (const loc of locationsToRepair) {
+                await setDoc(doc(db, "organizations", orgId, "locations", loc.id), {
+                    name: loc.name,
+                    address: loc.address,
+                    geofenceRadius: 250, // Slightly larger for better reliability
+                    organizationId: "hourglass_main",
+                    coordinates: {
+                        latitude: loc.lat,
+                        longitude: loc.lng
+                    },
+                    status: "active"
+                }, { merge: true })
+                console.log(`Repaired location: ${loc.id}`)
+            }
+
+            // 4. Ensure current user has a valid locationId if missing
+            if (user?.uid) {
+                await updateDoc(doc(db, "users", user.uid), {
+                    locationId: "north"
                 })
             }
 

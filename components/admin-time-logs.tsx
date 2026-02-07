@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
 import { Calendar as CalendarIcon, List, X, ChevronLeft, ChevronRight, Clock, MapPin } from "lucide-react"
+import { useAuth } from "@/components/auth-context"
 
 interface AdminTimeLogsProps {
     locationId: string
@@ -24,32 +25,40 @@ interface UserStats {
 }
 
 export function AdminTimeLogs({ locationId }: AdminTimeLogsProps) {
+    const { userData } = useAuth()
     const [stats, setStats] = useState<UserStats[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedUser, setSelectedUser] = useState<UserStats | null>(null)
     const [detailView, setDetailView] = useState<"list" | "calendar">("list")
 
     const fetchData = async () => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
         setLoading(true)
+
         try {
             // 1. Define Period (Last 14 Days)
             const endDate = new Date()
             const startDate = subDays(endDate, 13) // Include today
             startDate.setHours(0, 0, 0, 0)
 
-            // 2. Fetch Users
-            const usersQ = query(collection(db, "users"), where("locationId", "==", locationId))
+            // 2. Fetch Users for this organization
+            const usersQ = query(
+                collection(db, "users"),
+                where("organizationId", "==", orgId),
+                where("locationId", "==", locationId)
+            )
             const usersSnap = await getDocs(usersQ)
             const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 
-            // 3. Fetch Logs & Shifts
+            // 3. Fetch Logs (time_entries) & Shifts from organization sub-collection
             const logsQ = query(
-                collection(db, "time_logs"),
+                collection(db, "organizations", orgId, "time_entries"),
                 where("locationId", "==", locationId),
                 where("timestamp", ">=", Timestamp.fromDate(startDate))
             )
             const shiftsQ = query(
-                collection(db, "shifts"),
+                collection(db, "organizations", orgId, "shifts"),
                 where("locationId", "==", locationId),
                 where("startTime", ">=", Timestamp.fromDate(startDate))
             )
@@ -105,8 +114,8 @@ export function AdminTimeLogs({ locationId }: AdminTimeLogsProps) {
     }
 
     useEffect(() => {
-        if (locationId) fetchData()
-    }, [locationId])
+        if (locationId && userData?.organizationId) fetchData()
+    }, [locationId, userData?.organizationId])
 
     if (loading) return <div className="text-slate-400 text-center py-10">Loading stats...</div>
 

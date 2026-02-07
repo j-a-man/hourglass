@@ -6,6 +6,7 @@ import { collection, getDocs, deleteDoc, doc, writeBatch, query, where } from "f
 import { Button } from "@/components/ui/button"
 import { Trash2, Loader2, RefreshCcw } from "lucide-react"
 import { toast } from "sonner"
+import { useAuth } from "@/components/auth-context"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -25,18 +26,22 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function DuplicateShiftCleaner() {
+    const { userData } = useAuth()
     const [analyzing, setAnalyzing] = useState(false)
     const [cleaning, setCleaning] = useState(false)
     const [duplicateCount, setDuplicateCount] = useState(0)
     const [duplicates, setDuplicates] = useState<string[]>([])
-    const [targetCollection, setTargetCollection] = useState<"shifts" | "time_logs">("shifts")
+    const [targetCollection, setTargetCollection] = useState<"shifts" | "time_entries">("shifts")
     const [isOpen, setIsOpen] = useState(false)
 
-    const analyze = async (target: "shifts" | "time_logs") => {
+    const analyze = async (target: "shifts" | "time_entries") => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
+
         setTargetCollection(target)
         setAnalyzing(true)
         try {
-            const ref = collection(db, target)
+            const ref = collection(db, "organizations", orgId, target)
             const snapshot = await getDocs(ref)
 
             const map = new Map<string, string[]>()
@@ -81,6 +86,9 @@ export function DuplicateShiftCleaner() {
     }
 
     const cleanDuplicates = async () => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
+
         setCleaning(true)
         try {
             const batchSize = 500
@@ -93,7 +101,7 @@ export function DuplicateShiftCleaner() {
             for (const chunk of chunks) {
                 const batch = writeBatch(db)
                 chunk.forEach(id => {
-                    batch.delete(doc(db, targetCollection, id))
+                    batch.delete(doc(db, "organizations", orgId, targetCollection, id))
                 })
                 await batch.commit()
             }
@@ -166,7 +174,7 @@ export function DuplicateShiftCleaner() {
                     <DropdownMenuItem onClick={() => analyze("shifts")}>
                         Scan Duplicate Shifts
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => analyze("time_logs")}>
+                    <DropdownMenuItem onClick={() => analyze("time_entries")}>
                         Scan Duplicate Time Logs
                     </DropdownMenuItem>
                 </DropdownMenuContent>

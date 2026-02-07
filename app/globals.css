@@ -4,48 +4,16 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
   }
 
   body {
-    @apply text-slate-800;
-
-    /* Ensure no solid white is covering the gradient */
-    background-color: #f0f2f5;
-
-    background-image:
-      radial-gradient(at 0% 0%, hsla(253, 16%, 7%, 0) 0px, transparent 50%),
-      radial-gradient(at 0% 0%, hsla(225, 100%, 75%, 0.4) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(280, 100%, 80%, 0.4) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(320, 100%, 85%, 0.4) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(180, 100%, 75%, 0.4) 0px, transparent 50%);
-
-    background-attachment: fixed;
+    @apply bg-neutral-50 text-neutral-900 font-sans antialiased;
     min-height: 100vh;
   }
 }
 
 @layer components {
-
-  /* THE ULTRA GLASS CARD */
-  /* Higher blur (xl) and lower opacity (50%) make it look like frosted glass */
-  .glass-card {
-    @apply bg-white/50 backdrop-blur-xl border border-white/60 shadow-lg rounded-[2.5rem];
-  }
-
-  /* THE FLOATING NAV PILL */
-  .glass-nav {
-    @apply bg-white/40 backdrop-blur-2xl border border-white/50 shadow-md rounded-full px-2 py-2;
-  }
-
-  /* ACTIVE TAB HIGHLIGHT */
-  .nav-item-active {
-    @apply bg-white shadow-sm text-slate-800 font-bold;
-  }
-
-  /* INACTIVE TAB */
-  .nav-item {
-    @apply text-slate-600 hover:bg-white/30 transition-all font-medium;
-  }
+  /* Custom components can be added here if needed */
 }

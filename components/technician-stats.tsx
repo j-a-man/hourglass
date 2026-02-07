@@ -27,7 +27,7 @@ export function TechnicianStats() {
                 startOfPeriod.setHours(0, 0, 0, 0)
 
                 const q = query(
-                    collection(db, "time_logs"),
+                    collection(db, "organizations", userData.organizationId, "time_entries"),
                     where("userId", "==", user.uid),
                     where("timestamp", ">=", Timestamp.fromDate(startOfPeriod))
                 )

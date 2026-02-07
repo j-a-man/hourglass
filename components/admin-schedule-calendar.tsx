@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, User, MapPin, Trash2 } from "lucide-react"
 import { AddShiftDialog } from "@/components/add-shift-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { toast } from "sonner"
+import { useAuth } from "@/components/auth-context"
 
 interface Shift {
     id: string
@@ -24,11 +25,14 @@ interface AdminScheduleCalendarProps {
 }
 
 export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps) {
+    const { userData } = useAuth()
     const [currentDate, setCurrentDate] = useState(new Date())
     const [shifts, setShifts] = useState<Shift[]>([])
     const [loading, setLoading] = useState(true)
 
     const fetchShifts = async () => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
         setLoading(true)
         try {
             // Get range for query
@@ -40,7 +44,7 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
             const queryEnd = endOfWeek(end)
 
             const q = query(
-                collection(db, "shifts"),
+                collection(db, "organizations", orgId, "shifts"),
                 where("locationId", "==", locationId),
                 where("startTime", ">=", Timestamp.fromDate(queryStart)),
                 where("startTime", "<=", Timestamp.fromDate(queryEnd))
@@ -62,10 +66,11 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
 
     const handleDeleteShift = async (shiftId: string, e: React.MouseEvent) => {
         e.stopPropagation() // Prevent triggering parent click events if any
-        if (!confirm("Are you sure you want to delete this shift?")) return
+        if (!confirm("Are you sure you want to delete this shift?") || !userData?.organizationId) return
+        const orgId = userData.organizationId
 
         try {
-            await deleteDoc(doc(db, "shifts", shiftId))
+            await deleteDoc(doc(db, "organizations", orgId, "shifts", shiftId))
             toast.success("Shift deleted")
             fetchShifts()
         } catch (error) {
@@ -76,7 +81,7 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
 
     useEffect(() => {
         fetchShifts()
-    }, [currentDate, locationId])
+    }, [currentDate, locationId, userData?.organizationId])
 
     const nextMonth = () => setCurrentDate(addMonths(currentDate, 1))
     const prevMonth = () => setCurrentDate(subMonths(currentDate, 1))

@@ -36,6 +36,7 @@ export default function SetupPage() {
                 email: user.email,
                 name: name,
                 role: "admin",
+                status: 'active',
                 locationId: "north", // Default to north for master admin
                 createdAt: new Date().toISOString()
             })

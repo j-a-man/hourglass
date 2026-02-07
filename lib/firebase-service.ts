@@ -11,44 +11,51 @@ import {
 
 export interface TimeLog {
   id: string
-  userId: string
-  type: "clock-in" | "clock-out"
-  timestamp: string
+  employeeId: string
+  userName?: string
+  clockInTime: string
+  clockOutTime?: string | null
   locationId: string
   latitude?: number
   longitude?: number
+  organizationId?: string
 }
 
 export interface TimeLogData {
-  userId: string
-  type: "clock-in" | "clock-out"
-  timestamp: string
+  employeeId: string
+  userName?: string
+  clockInTime: string
+  clockOutTime?: string | null
   locationId: string
   latitude?: number
   longitude?: number
+  organizationId: string
 }
 
 /**
- * Log time entry to Firestore
+ * Log time entry to Firestore (Active Session Model)
  */
 export async function logTime(
-  userId: string,
-  type: "clock-in" | "clock-out",
+  organizationId: string,
+  employeeId: string,
+  userName: string,
   locationId: string,
   latitude?: number,
   longitude?: number
 ): Promise<TimeLog> {
   const timeLogData: TimeLogData = {
-    userId,
-    type,
-    timestamp: new Date().toISOString(),
+    employeeId,
+    userName,
+    clockInTime: new Date().toISOString(),
+    clockOutTime: null,
     locationId,
     latitude,
-    longitude
+    longitude,
+    organizationId
   }
 
   try {
-    const docRef = await addDoc(collection(db, "time_logs"), timeLogData)
+    const docRef = await addDoc(collection(db, "organizations", organizationId, "time_entries"), timeLogData)
     console.log("Time log created with ID: ", docRef.id)
     return {
       id: docRef.id,
@@ -63,11 +70,11 @@ export async function logTime(
 /**
  * Fetch all time logs for a specific user
  */
-export async function getUserTimeLogs(userId: string): Promise<TimeLog[]> {
+export async function getUserTimeLogs(organizationId: string, employeeId: string): Promise<TimeLog[]> {
   const q = query(
-    collection(db, "time_logs"),
-    where("userId", "==", userId),
-    orderBy("timestamp", "desc")
+    collection(db, "organizations", organizationId, "time_entries"),
+    where("employeeId", "==", employeeId),
+    orderBy("clockInTime", "desc")
   )
 
   const querySnapshot = await getDocs(q)
@@ -81,25 +88,25 @@ export async function getUserTimeLogs(userId: string): Promise<TimeLog[]> {
  * Fetch time logs within a date range (optional location filter)
  */
 export async function getTimeLogsInRange(
+  organizationId: string,
   fromDate: Date,
   toDate: Date,
   locationId?: string
 ): Promise<TimeLog[]> {
   let q = query(
-    collection(db, "time_logs"),
-    where("timestamp", ">=", fromDate.toISOString()),
-    where("timestamp", "<=", toDate.toISOString()),
-    orderBy("timestamp", "desc")
+    collection(db, "organizations", organizationId, "time_entries"),
+    where("clockInTime", ">=", fromDate.toISOString()),
+    where("clockInTime", "<=", toDate.toISOString()),
+    orderBy("clockInTime", "desc")
   )
 
   if (locationId) {
-    // Note: This requires a composite index in Firestore
     q = query(
-      collection(db, "time_logs"),
+      collection(db, "organizations", organizationId, "time_entries"),
       where("locationId", "==", locationId),
-      where("timestamp", ">=", fromDate.toISOString()),
-      where("timestamp", "<=", toDate.toISOString()),
-      orderBy("timestamp", "desc")
+      where("clockInTime", ">=", fromDate.toISOString()),
+      where("clockInTime", "<=", toDate.toISOString()),
+      orderBy("clockInTime", "desc")
     )
   }
 
@@ -114,16 +121,17 @@ export async function getTimeLogsInRange(
  * Fetch time logs for specific user within date range
  */
 export async function getUserTimeLogsInRange(
-  userId: string,
+  organizationId: string,
+  employeeId: string,
   fromDate: Date,
   toDate: Date
 ): Promise<TimeLog[]> {
   const q = query(
-    collection(db, "time_logs"),
-    where("userId", "==", userId),
-    where("timestamp", ">=", fromDate.toISOString()),
-    where("timestamp", "<=", toDate.toISOString()),
-    orderBy("timestamp", "desc")
+    collection(db, "organizations", organizationId, "time_entries"),
+    where("employeeId", "==", employeeId),
+    where("clockInTime", ">=", fromDate.toISOString()),
+    where("clockInTime", "<=", toDate.toISOString()),
+    orderBy("clockInTime", "desc")
   )
 
   const querySnapshot = await getDocs(q)

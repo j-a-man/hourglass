@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { db } from "@/lib/firebase"
 import { collection, query, orderBy, onSnapshot, Timestamp, where } from "firebase/firestore"
 import { Card, CardContent } from "@/components/ui/card"
+import { useAuth } from "@/components/auth-context"
 import { format } from "date-fns"
 import { Calendar, MapPin, User, Clock } from "lucide-react"
 
@@ -19,18 +20,22 @@ interface Shift {
 }
 
 export function ShiftList({ locationId }: { locationId?: string }) {
+    const { userData } = useAuth()
     const [shifts, setShifts] = useState<Shift[]>([])
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
+
         let q = query(
-            collection(db, "shifts"),
+            collection(db, "organizations", orgId, "shifts"),
             orderBy("startTime", "asc")
         )
 
         if (locationId) {
             q = query(
-                collection(db, "shifts"),
+                collection(db, "organizations", orgId, "shifts"),
                 where("locationId", "==", locationId),
                 orderBy("startTime", "asc")
             )

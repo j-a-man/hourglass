@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { db } from "@/lib/firebase"
-import { collection, addDoc, getDocs, Timestamp } from "firebase/firestore"
+import { collection, addDoc, getDocs, Timestamp, query, where } from "firebase/firestore"
 import { toast } from "sonner"
 import { Plus } from "lucide-react"
+import { useAuth } from "@/components/auth-context"
 
 interface User {
     id: string
@@ -29,6 +30,7 @@ interface AddShiftDialogProps {
 }
 
 export function AddShiftDialog({ defaultDate, trigger, onSuccess }: AddShiftDialogProps) {
+    const { userData } = useAuth()
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [employees, setEmployees] = useState<User[]>([])
@@ -60,9 +62,15 @@ export function AddShiftDialog({ defaultDate, trigger, onSuccess }: AddShiftDial
     }, [open, defaultDate])
 
     const fetchData = async () => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
+
         try {
-            // Fetch Users
-            const usersSnap = await getDocs(collection(db, "users"))
+            // Fetch Users for this organization
+            const usersSnap = await getDocs(query(
+                collection(db, "users"),
+                where("organizationId", "==", orgId)
+            ))
             const usersData = usersSnap.docs.map(doc => ({
                 id: doc.id,
                 name: doc.data().name || doc.data().email || "Unknown",
@@ -70,8 +78,8 @@ export function AddShiftDialog({ defaultDate, trigger, onSuccess }: AddShiftDial
             }))
             setEmployees(usersData)
 
-            // Fetch Locations
-            const locsSnap = await getDocs(collection(db, "locations"))
+            // Fetch Locations from organization sub-collection
+            const locsSnap = await getDocs(collection(db, "organizations", orgId, "locations"))
             const locsData = locsSnap.docs.map(doc => ({
                 id: doc.id,
                 name: doc.data().name
@@ -92,6 +100,9 @@ export function AddShiftDialog({ defaultDate, trigger, onSuccess }: AddShiftDial
 
         setLoading(true)
         try {
+            const orgId = userData?.organizationId
+            if (!orgId) throw new Error("Organization ID missing")
+
             const start = new Date(startTime)
             const end = new Date(endTime)
 
@@ -104,7 +115,7 @@ export function AddShiftDialog({ defaultDate, trigger, onSuccess }: AddShiftDial
             const employee = employees.find(e => e.id === selectedEmployee)
             const location = locations.find(l => l.id === selectedLocation)
 
-            await addDoc(collection(db, "shifts"), {
+            await addDoc(collection(db, "organizations", orgId, "shifts"), {
                 userId: selectedEmployee,
                 userName: employee?.name || "Unknown",
                 locationId: selectedLocation,

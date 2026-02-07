@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { CheckCircle2, Clock } from "lucide-react"
+import { useAuth } from "@/components/auth-context"
 
 interface TimeLog {
     id: string
@@ -14,18 +15,23 @@ interface TimeLog {
 }
 
 export function RecentActivity({ locationId, limitCount }: { locationId: string, limitCount?: number }) {
+    const { userData } = useAuth()
     const [logs, setLogs] = useState<(TimeLog & { userName: string })[]>([])
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
+
         const fetchLogs = async () => {
             setLoading(true)
             try {
-                // 1. Fetch recent logs (limit 20 or limitCount if larger, but 20 is safe default for "recent")
+                // 1. Fetch recent logs from organization sub-collection
                 const q = query(
-                    collection(db, "time_logs"),
+                    collection(db, "organizations", orgId, "time_entries"),
+                    where("locationId", "==", locationId),
                     orderBy("timestamp", "desc"),
-                    limit(limitCount ? limitCount + 5 : 20) // Fetch a bit more than needed
+                    limit(limitCount || 20)
                 )
 
                 const querySnapshot = await getDocs(q)
@@ -71,7 +77,7 @@ export function RecentActivity({ locationId, limitCount }: { locationId: string,
         }
 
         fetchLogs()
-    }, [locationId, limitCount])
+    }, [locationId, limitCount, userData?.organizationId])
 
     if (loading) {
         return <div className="text-center py-4 text-slate-400 text-sm">Loading activity...</div>

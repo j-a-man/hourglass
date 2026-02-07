@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Download, DollarSign, Clock, AlertTriangle, TrendingUp } from "lucide-react"
+import { useAuth } from "@/components/auth-context"
 
 interface AdminFinanceProps {
     locationId: string
@@ -25,6 +26,7 @@ interface PayrollEntry {
 }
 
 export function AdminFinance({ locationId }: AdminFinanceProps) {
+    const { userData } = useAuth()
     const [period, setPeriod] = useState("this_month")
     const [loading, setLoading] = useState(false)
     const [payrollData, setPayrollData] = useState<PayrollEntry[]>([])
@@ -37,10 +39,13 @@ export function AdminFinance({ locationId }: AdminFinanceProps) {
 
     useEffect(() => {
         fetchData()
-    }, [locationId, period])
+    }, [locationId, period, userData?.organizationId])
 
     const fetchData = async () => {
+        if (!userData?.organizationId) return
+        const orgId = userData.organizationId
         setLoading(true)
+
         try {
             // 1. Determine Date Range
             const now = new Date()
@@ -59,14 +64,20 @@ export function AdminFinance({ locationId }: AdminFinanceProps) {
                 start = subDays(end, 13) // Roughly 2 weeks
             }
 
-            // 2. Fetch Users (for Rates)
-            const usersQ = query(collection(db, "users"), where("locationId", "==", locationId))
+            // 2. Fetch Users (for Rates) for this organization
+            const usersQ = query(
+                collection(db, "users"),
+                where("organizationId", "==", orgId),
+                where("locationId", "==", locationId)
+            )
             const usersSnap = await getDocs(usersQ)
             const users = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any))
 
-            // 3. Fetch Time Logs
-            // Note: In production, optimize with composite index on [locationId, timestamp]
-            const logsQ = query(collection(db, "time_logs"), where("locationId", "==", locationId))
+            // 3. Fetch Time Logs (time_entries) from organization sub-collection
+            const logsQ = query(
+                collection(db, "organizations", orgId, "time_entries"),
+                where("locationId", "==", locationId)
+            )
             const logsSnap = await getDocs(logsQ)
             const allLogs = logsSnap.docs.map(doc => doc.data())
 

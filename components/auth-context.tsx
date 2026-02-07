@@ -3,17 +3,33 @@
 import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { onAuthStateChanged, type User } from "firebase/auth"
-import { doc, getDoc } from "firebase/firestore"
+import { doc, getDoc, onSnapshot, type DocumentSnapshot } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
 import { useRouter } from "next/navigation"
 
-interface UserData {
+// Aligned with Firestore Schema
+export interface UserData {
     uid: string
     email: string
-    role: "admin" | "technician"
-    locationId: string
     name: string
+    role: 'owner' | 'admin' | 'manager' | 'staff' | 'associate'
+    organizationId: string
+    status: 'active' | 'inactive' | 'terminated'
+    locationId?: string
     hourlyRate?: number
+    phone?: string
+    photoUrl?: string
+    employeeDetails?: {
+        employeeId: string
+        payRate: number
+        position: string
+        hireDate: string
+        timeOffBalance: {
+            vacation: number
+            sick: number
+            personal: number
+        }
+    }
 }
 
 interface AuthContextType {
@@ -35,29 +51,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter()
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        let unsubscribeDoc: (() => void) | null = null
+
+        const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
             setUser(firebaseUser)
 
             if (firebaseUser) {
-                try {
-                    const userDoc = await getDoc(doc(db, "users", firebaseUser.uid))
-                    if (userDoc.exists()) {
-                        setUserData(userDoc.data() as UserData)
-                    } else {
-                        console.error("User document not found")
-                        // Handle case where user exists in Auth but not Firestore
+                // Use onSnapshot for real-time updates and to handle the registration race condition
+                unsubscribeDoc = onSnapshot(
+                    doc(db, "users", firebaseUser.uid),
+                    (userDocDetail: DocumentSnapshot) => {
+                        if (userDocDetail.exists()) {
+                            setUserData(userDocDetail.data() as UserData)
+                        } else {
+                            setUserData(null)
+                        }
+                        setLoading(false)
+                    },
+                    (errorDetail: Error) => {
+                        console.error("Error listening to user data:", errorDetail)
                         setUserData(null)
+                        setLoading(false)
                     }
-                } catch (error) {
-                    console.error("Error fetching user data:", error)
-                }
+                )
             } else {
                 setUserData(null)
+                setLoading(false)
             }
-            setLoading(false)
         })
 
-        return () => unsubscribe()
+        return () => {
+            unsubscribeAuth()
+            if (unsubscribeDoc) unsubscribeDoc()
+        }
     }, [])
 
     return (
