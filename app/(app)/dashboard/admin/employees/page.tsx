@@ -49,6 +49,9 @@ export default function EmployeesPage() {
     const [scrubEmail, setScrubEmail] = useState("")
     const [isScrubbing, setIsScrubbing] = useState(false)
     const [isChecking, setIsChecking] = useState(false)
+    const [invitations, setInvitations] = useState<any[]>([])
+    const [loadingInvites, setLoadingInvites] = useState(true)
+
 
     const handleCheckConfig = async () => {
         setIsChecking(true)
@@ -83,6 +86,23 @@ export default function EmployeesPage() {
         }
     }
 
+    const fetchInvitations = async () => {
+        if (!userData?.organizationId) return
+        setLoadingInvites(true)
+        try {
+            const invSnapshot = await getDocs(query(
+                collection(db, "organizations", userData.organizationId, "invitations"),
+                where("status", "==", "pending"),
+                orderBy("createdAt", "desc")
+            ))
+            setInvitations(invSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+        } catch (error) {
+            console.error("Error fetching invitations:", error)
+        } finally {
+            setLoadingInvites(false)
+        }
+    }
+
     useEffect(() => {
         const fetchData = async () => {
             if (!userData?.organizationId) return
@@ -102,6 +122,9 @@ export default function EmployeesPage() {
                     orderBy("name", "asc")
                 ))
                 setLocations(locSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+
+                // Fetch invitations
+                await fetchInvitations()
             } catch (error) {
                 console.error("Error fetching data:", error)
             } finally {
@@ -164,6 +187,19 @@ export default function EmployeesPage() {
         } catch (error) {
             console.error("Error deleting staff:", error)
             toast.error("An unexpected error occurred")
+        }
+    }
+
+    const handleRevokeInvite = async (inviteId: string, email: string) => {
+        if (!confirm(`Revoke invitation for ${email}?`)) return
+        try {
+            const inviteRef = doc(db, "organizations", userData!.organizationId!, "invitations", inviteId)
+            await deleteDoc(inviteRef)
+            setInvitations(prev => prev.filter(i => i.id !== inviteId))
+            toast.success(`Invitation for ${email} revoked`)
+        } catch (error) {
+            console.error("Error revoking invite:", error)
+            toast.error("Failed to revoke invitation")
         }
     }
 
@@ -242,129 +278,195 @@ export default function EmployeesPage() {
                     </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <Table>
-                        <TableHeader className="bg-neutral-50/30">
-                            <TableRow className="hover:bg-transparent border-neutral-100">
-                                <TableHead className="px-8 font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Staff Member</TableHead>
-                                <TableHead className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Role & Access</TableHead>
-                                <TableHead className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Location</TableHead>
-                                <TableHead className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Status</TableHead>
-                                <TableHead className="px-8 text-right font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {loading ? (
-                                Array(5).fill(0).map((_, i) => (
-                                    <TableRow key={i} className="animate-pulse">
-                                        <TableCell colSpan={5} className="py-8 px-8"><div className="h-10 bg-neutral-50 rounded-lg w-full"></div></TableCell>
-                                    </TableRow>
-                                ))
-                            ) : filteredEmployees.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={5} className="py-20 text-center">
-                                        <div className="flex flex-col items-center gap-2 text-neutral-400">
-                                            <User className="h-10 w-10 opacity-20" />
-                                            <p className="font-bold">No staff members found matching your search.</p>
-                                        </div>
-                                    </TableCell>
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-neutral-50/30">
+                                <TableRow className="hover:bg-transparent border-neutral-100">
+                                    <TableHead className="px-8 font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Staff Member</TableHead>
+                                    <TableHead className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Role & Access</TableHead>
+                                    <TableHead className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Location</TableHead>
+                                    <TableHead className="font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Status</TableHead>
+                                    <TableHead className="px-8 text-right font-bold text-neutral-400 uppercase text-[10px] tracking-widest h-12">Actions</TableHead>
                                 </TableRow>
-                            ) : (
-                                filteredEmployees.map((employee) => (
-                                    <TableRow key={employee.id} className="hover:bg-neutral-50/50 transition-colors border-neutral-50">
-                                        <TableCell className="px-8 py-5">
-                                            <div className="flex items-center gap-4">
-                                                <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg shadow-inner">
-                                                    {employee.name?.[0] || employee.email?.[0]?.toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <p className="font-bold text-neutral-900 leading-tight">{employee.name}</p>
-                                                    <p className="text-xs text-neutral-500 font-medium">{employee.email}</p>
-                                                </div>
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    Array(5).fill(0).map((_, i) => (
+                                        <TableRow key={i} className="animate-pulse">
+                                            <TableCell colSpan={5} className="py-8 px-8"><div className="h-10 bg-neutral-50 rounded-lg w-full"></div></TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : filteredEmployees.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="py-20 text-center">
+                                            <div className="flex flex-col items-center gap-2 text-neutral-400">
+                                                <User className="h-10 w-10 opacity-20" />
+                                                <p className="font-bold">No staff members found matching your search.</p>
                                             </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <div className="h-6 w-6 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-500">
-                                                    <Shield className="h-3 w-3" />
-                                                </div>
-                                                <span className="text-sm font-bold text-neutral-700 capitalize">{employee.role}</span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2 text-neutral-500">
-                                                <MapPin className="h-4 w-4" />
-                                                <span className="text-sm font-bold text-neutral-700">{getLocationName(employee.locationId)}</span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge className={cn(
-                                                "rounded-full px-3 py-0.5 border-0 font-bold text-[10px] uppercase tracking-wider",
-                                                employee.status === 'inactive'
-                                                    ? "bg-neutral-100 text-neutral-500"
-                                                    : "bg-emerald-100 text-emerald-700"
-                                            )}>
-                                                {employee.status || 'Active'}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="px-8 text-right">
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-neutral-100">
-                                                        <MoreHorizontal className="h-4 w-4 text-neutral-400" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" className="rounded-xl border-neutral-100 shadow-xl w-48">
-                                                    <DropdownMenuLabel className="text-xs font-bold text-neutral-400 uppercase tracking-widest px-3 py-2">Management</DropdownMenuLabel>
-                                                    <DropdownMenuItem
-                                                        className="rounded-lg mx-1 font-bold text-neutral-700"
-                                                        onClick={() => router.push(`/dashboard/admin/employees/${employee.id}`)}
-                                                    >
-                                                        View Profile
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="rounded-lg mx-1 font-bold text-neutral-700"
-                                                        onClick={() => router.push(`/dashboard/admin/employees/${employee.id}?tab=permissions`)}
-                                                    >
-                                                        Edit Permissions
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="rounded-lg mx-1 font-bold text-neutral-700"
-                                                        onClick={() => router.push(`/dashboard/admin/employees/${employee.id}?tab=hours`)}
-                                                    >
-                                                        Assigned Hours
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuSeparator className="bg-neutral-50" />
-                                                    <DropdownMenuItem
-                                                        className={cn(
-                                                            "rounded-lg mx-1 font-bold",
-                                                            employee.status === "inactive" ? "text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50" : "text-red-600 focus:text-red-600 focus:bg-red-50"
-                                                        )}
-                                                        onClick={() => handleToggleStatus(employee.id, employee.status || 'active')}
-                                                    >
-                                                        {employee.status === "inactive" ? "Activate Staff" : "Deactivate Staff"}
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="rounded-lg mx-1 font-bold text-red-600 focus:text-red-600 focus:bg-red-50"
-                                                        onClick={() => handleDeleteStaff(employee.id, employee.name, employee.email)}
-                                                    >
-                                                        Remove from Business
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
+                                ) : (
+                                    filteredEmployees.map((employee) => (
+                                        <TableRow key={employee.id} className="hover:bg-neutral-50/50 transition-colors border-neutral-50">
+                                            <TableCell className="px-8 py-5">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg shadow-inner">
+                                                        {employee.name?.[0] || employee.email?.[0]?.toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-bold text-neutral-900 leading-tight">{employee.name}</p>
+                                                        <p className="text-xs text-neutral-500 font-medium">{employee.email}</p>
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="h-6 w-6 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-500">
+                                                        <Shield className="h-3 w-3" />
+                                                    </div>
+                                                    <span className="text-sm font-bold text-neutral-700 capitalize">{employee.role}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2 text-neutral-500">
+                                                    <MapPin className="h-4 w-4" />
+                                                    <span className="text-sm font-bold text-neutral-700">{getLocationName(employee.locationId)}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge className={cn(
+                                                    "rounded-full px-3 py-0.5 border-0 font-bold text-[10px] uppercase tracking-wider",
+                                                    employee.status === 'inactive'
+                                                        ? "bg-neutral-100 text-neutral-500"
+                                                        : "bg-emerald-100 text-emerald-700"
+                                                )}>
+                                                    {employee.status || 'Active'}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="px-8 text-right">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-neutral-100">
+                                                            <MoreHorizontal className="h-4 w-4 text-neutral-400" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end" className="rounded-xl border-neutral-100 shadow-xl w-48">
+                                                        <DropdownMenuLabel className="text-xs font-bold text-neutral-400 uppercase tracking-widest px-3 py-2">Management</DropdownMenuLabel>
+                                                        <DropdownMenuItem
+                                                            className="rounded-lg mx-1 font-bold text-neutral-700"
+                                                            onClick={() => router.push(`/dashboard/admin/employees/${employee.id}`)}
+                                                        >
+                                                            View Profile
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            className="rounded-lg mx-1 font-bold text-neutral-700"
+                                                            onClick={() => router.push(`/dashboard/admin/employees/${employee.id}?tab=permissions`)}
+                                                        >
+                                                            Edit Permissions
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            className="rounded-lg mx-1 font-bold text-neutral-700"
+                                                            onClick={() => router.push(`/dashboard/admin/employees/${employee.id}?tab=hours`)}
+                                                        >
+                                                            Assigned Hours
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator className="bg-neutral-50" />
+                                                        <DropdownMenuItem
+                                                            className={cn(
+                                                                "rounded-lg mx-1 font-bold",
+                                                                employee.status === "inactive" ? "text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50" : "text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                            )}
+                                                            onClick={() => handleToggleStatus(employee.id, employee.status || 'active')}
+                                                        >
+                                                            {employee.status === "inactive" ? "Activate Staff" : "Deactivate Staff"}
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            className="rounded-lg mx-1 font-bold text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                            onClick={() => handleDeleteStaff(employee.id, employee.name, employee.email)}
+                                                        >
+                                                            Remove from Business
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </CardContent>
             </Card>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                    <h2 className="text-xl font-black text-neutral-900 tracking-tight">Pending Invitations</h2>
+                    <Badge variant="outline" className="rounded-full px-3 py-1 border-neutral-200 text-neutral-500 font-bold bg-white">
+                        {invitations.length} Active
+                    </Badge>
+                </div>
+
+                {loadingInvites ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {[1, 2].map(i => (
+                            <div key={i} className="h-32 rounded-[24px] bg-neutral-50 animate-pulse border border-neutral-100" />
+                        ))}
+                    </div>
+                ) : invitations.length === 0 ? (
+                    <div className="p-12 text-center rounded-[32px] border border-dashed border-neutral-200 bg-neutral-50/30">
+                        <Mail className="h-10 w-10 text-neutral-300 mx-auto mb-3 opacity-50" />
+                        <p className="text-sm font-bold text-neutral-400">No pending invitations.</p>
+                        <p className="text-xs text-neutral-400 mt-1">Sent invites that haven't been accepted will appear here.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {invitations.map((invite) => (
+                            <Card key={invite.id} className="rounded-[24px] border-neutral-100 shadow-sm overflow-hidden group hover:border-primary/20 transition-all">
+                                <CardContent className="p-5">
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="h-10 w-10 rounded-xl bg-primary/5 flex items-center justify-center text-primary">
+                                            <Mail className="h-5 w-5" />
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg group-hover:opacity-100 transition-opacity"
+                                            onClick={() => handleRevokeInvite(invite.id, invite.email)}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="font-bold text-neutral-900 truncate">{invite.email}</p>
+                                        <div className="flex items-center gap-2">
+                                            <Badge className="bg-neutral-100 text-neutral-600 border-0 rounded-full text-[10px] uppercase font-bold px-2">
+                                                {invite.role}
+                                            </Badge>
+                                            <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-tight">
+                                                {invite.createdAt?.seconds ? new Date(invite.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {invite.locationId && (
+                                        <div className="mt-4 pt-4 border-t border-neutral-50 flex items-center gap-2 text-neutral-400">
+                                            <MapPin className="h-3 w-3" />
+                                            <span className="text-[10px] font-bold uppercase tracking-tight truncate">
+                                                {getLocationName(invite.locationId)}
+                                            </span>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                )}
+            </div>
 
             <InviteStaffDialog
                 open={isInviteDialogOpen}
                 onOpenChange={setIsInviteDialogOpen}
                 onSuccess={() => {
-                    // Refresh employees list (optional if you want to show pending invites)
+                    fetchInvitations()
                 }}
             />
 

@@ -37,6 +37,7 @@ export function InviteStaffDialog({ open, onOpenChange, onSuccess }: InviteStaff
     const [email, setEmail] = useState("")
     const [role, setRole] = useState("employee")
     const [selectedLocationId, setSelectedLocationId] = useState<string>("none")
+    const [payRate, setPayRate] = useState("")
     const [locations, setLocations] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
     const [fetchingLocations, setFetchingLocations] = useState(false)
@@ -64,6 +65,10 @@ export function InviteStaffDialog({ open, onOpenChange, onSuccess }: InviteStaff
             toast.error("Please enter an email address")
             return
         }
+        if (!payRate) {
+            toast.error("Please enter an hourly pay rate")
+            return
+        }
 
         setLoading(true)
         try {
@@ -74,6 +79,7 @@ export function InviteStaffDialog({ open, onOpenChange, onSuccess }: InviteStaff
                 inviterId: userData?.uid || '',
                 inviterName: userData?.name || 'Administrator',
                 createdAt: serverTimestamp(),
+                payRate: parseFloat(payRate) || 0,
             }
 
             if (selectedLocationId !== "none") {
@@ -214,6 +220,23 @@ export function InviteStaffDialog({ open, onOpenChange, onSuccess }: InviteStaff
                             </SelectContent>
                         </Select>
                         {fetchingLocations && <p className="text-[10px] text-neutral-400 animate-pulse px-1">Loading locations...</p>}
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 px-1">Hourly Pay Rate ($)</Label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-3.5 font-bold text-neutral-400">$</span>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.00"
+                                className="pl-8 h-12 rounded-xl bg-neutral-50 border-transparent focus:bg-white focus:ring-primary/20 font-bold text-neutral-900"
+                                value={payRate}
+                                onChange={(e) => setPayRate(e.target.value)}
+                                disabled={loading}
+                            />
+                        </div>
                     </div>
                 </div>
 

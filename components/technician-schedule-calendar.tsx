@@ -6,21 +6,14 @@ import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, Timestamp } from "firebase/firestore"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns"
 import { ChevronLeft, ChevronRight, Clock, MapPin } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-interface Shift {
-    id: string
-    userId: string
-    userName: string
-    locationId: string
-    locationName?: string
-    startTime: Timestamp
-    endTime: Timestamp
-}
+import { getEffectiveShifts, EffectiveShift } from "@/lib/services/schedule-utils"
 
 export function TechnicianScheduleCalendar() {
     const { user, userData } = useAuth()
     const [currentDate, setCurrentDate] = useState(new Date())
-    const [shifts, setShifts] = useState<Shift[]>([])
+    const [shifts, setShifts] = useState<EffectiveShift[]>([])
     const [loading, setLoading] = useState(true)
 
     const fetchShifts = async () => {
@@ -28,28 +21,19 @@ export function TechnicianScheduleCalendar() {
         const orgId = userData.organizationId
         setLoading(true)
         try {
-            // Get range for query
             const start = startOfMonth(currentDate)
             const end = endOfMonth(currentDate)
-
-            // Adjust query to include full weeks (buffer)
             const queryStart = startOfWeek(start)
             const queryEnd = endOfWeek(end)
 
-            const q = query(
-                collection(db, "organizations", orgId, "shifts"),
-                where("userId", "==", user.uid),
-                where("startTime", ">=", Timestamp.fromDate(queryStart)),
-                where("startTime", "<=", Timestamp.fromDate(queryEnd))
+            const effectiveShifts = await getEffectiveShifts(
+                orgId,
+                user.uid,
+                queryStart,
+                queryEnd
             )
 
-            const snapshot = await getDocs(q)
-            const shiftsData = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as Shift[]
-
-            setShifts(shiftsData)
+            setShifts(effectiveShifts)
         } catch (error) {
             console.error("Error fetching shifts:", error)
         } finally {
@@ -105,20 +89,20 @@ export function TechnicianScheduleCalendar() {
             {/* GRID */}
             <div className="flex-1 grid grid-cols-7 auto-rows-fr">
                 {calendarDays.map((day, dayIdx) => {
-                    const dayShifts = shifts.filter(s => isSameDay(s.startTime.toDate(), day))
-                    dayShifts.sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
+                    const dayShifts = shifts.filter(s => isSameDay(s.startTime, day))
+                    dayShifts.sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 
                     return (
                         <div
                             key={day.toString()}
-                            className={`
-                                min-h-[100px] p-2 border-b border-r border-slate-200/50 relative group transition-colors
-                                ${!isSameMonth(day, monthStart) ? 'bg-slate-50/50 text-slate-400' : 'bg-white/20 text-slate-800'}
-                                ${isSameDay(day, new Date()) ? 'bg-indigo-50/80 ring-inset ring-2 ring-indigo-400' : ''}
-                            `}
+                            className={cn(
+                                "min-h-[100px] p-2 border-b border-r border-slate-200/50 relative group transition-colors",
+                                !isSameMonth(day, monthStart) ? 'bg-slate-50/50 text-slate-400' : 'bg-white/20 text-slate-800',
+                                isSameDay(day, new Date()) ? 'bg-indigo-50/80 ring-inset ring-2 ring-indigo-400' : ''
+                            )}
                         >
                             <div className="flex justify-between items-start mb-2">
-                                <span className={`text-sm font-semibold ml-1 ${!isSameMonth(day, monthStart) ? 'opacity-50' : ''}`}>
+                                <span className={cn("text-sm font-semibold ml-1", !isSameMonth(day, monthStart) && 'opacity-50')}>
                                     {format(day, "d")}
                                 </span>
                             </div>
@@ -127,17 +111,25 @@ export function TechnicianScheduleCalendar() {
                                 {dayShifts.map(shift => (
                                     <div
                                         key={shift.id}
-                                        className="text-xs p-2.5 rounded-lg bg-indigo-50 border border-indigo-100/50 hover:bg-indigo-100 transition-colors cursor-default shadow-sm group/shift"
+                                        className={cn(
+                                            "text-xs p-2.5 rounded-lg border transition-colors cursor-default shadow-sm group/shift",
+                                            shift.isVirtual
+                                                ? "bg-neutral-50 border-neutral-200 text-neutral-600 border-dashed"
+                                                : "bg-indigo-50 border-indigo-100/50 hover:bg-indigo-100 text-indigo-900"
+                                        )}
                                     >
-                                        <div className="flex items-center gap-2 font-bold text-indigo-900 mb-1">
-                                            <Clock size={12} className="shrink-0 text-indigo-500" />
+                                        <div className="flex items-center gap-2 font-bold mb-1">
+                                            <Clock size={12} className={cn("shrink-0", shift.isVirtual ? "text-neutral-400" : "text-indigo-500")} />
                                             <span>
-                                                {format(shift.startTime.toDate(), "h:mm a")} - {format(shift.endTime.toDate(), "h:mm a")}
+                                                {format(shift.startTime, "h:mm a")} - {format(shift.endTime, "h:mm a")}
                                             </span>
                                         </div>
-                                        <div className="flex items-center gap-1.5 text-indigo-700/80 text-[11px] font-medium ml-0.5">
+                                        <div className={cn(
+                                            "flex items-center gap-1.5 text-[11px] font-medium ml-0.5",
+                                            shift.isVirtual ? "text-neutral-500" : "text-indigo-700/80"
+                                        )}>
                                             <MapPin size={10} className="shrink-0" />
-                                            <span className="truncate">{shift.locationName || shift.locationId + " Store"}</span>
+                                            <span className="truncate">{shift.locationName || "Workplace"}</span>
                                         </div>
                                     </div>
                                 ))}

@@ -97,6 +97,61 @@ export async function sendWelcomeEmailAction(to: string, displayName: string) {
 }
 
 /**
+ * Sends a shift assignment notification email to an employee
+ */
+export async function sendShiftAssignmentEmailAction(
+  to: string,
+  employeeName: string,
+  locationName: string,
+  shiftDate: string,
+  startTime: string,
+  endTime: string
+) {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.error('Email credentials not configured');
+    return { success: false, error: 'Config missing' };
+  }
+
+  const content = `
+        <h1 class="h1">New Shift Assigned</h1>
+        <p class="text">Hi <strong>${employeeName}</strong>, you've been assigned a new shift.</p>
+        
+        <div style="background-color: #F3F4F6; padding: 24px; border-radius: 16px; margin: 32px 0; border: 1px solid #E5E7EB;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 8px 0; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #9CA3AF; letter-spacing: 0.1em;">Date</td>
+                    <td style="padding: 8px 0; font-size: 16px; font-weight: 700; color: #111827; text-align: right;">${shiftDate}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #9CA3AF; letter-spacing: 0.1em;">Time</td>
+                    <td style="padding: 8px 0; font-size: 16px; font-weight: 700; color: #111827; text-align: right;">${startTime} – ${endTime}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #9CA3AF; letter-spacing: 0.1em;">Location</td>
+                    <td style="padding: 8px 0; font-size: 16px; font-weight: 700; color: #111827; text-align: right;">${locationName}</td>
+                </tr>
+            </table>
+        </div>
+
+        <a href="${APP_URL}/dashboard" class="button">View Your Schedule</a>
+    `;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"Hourglass" <${process.env.GMAIL_USER}>`,
+      to,
+      subject: `New Shift Assigned – ${shiftDate}`,
+      html: getBaseTemplate(content),
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    console.error('Error sending shift assignment email:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+/**
  * Sends an invitation email to potential team members
  */
 export async function sendTeamInviteEmailAction(to: string, adminName: string, companyName: string, joinCode: string, inviteLink: string) {
@@ -137,6 +192,45 @@ export async function sendTeamInviteEmailAction(to: string, adminName: string, c
     return { success: true, messageId: info.messageId };
   } catch (err) {
     console.error('Error sending team invite email:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+/**
+ * Sends a confirmation email that the account has been permanently deleted
+ */
+export async function sendAccountDeletedEmailAction(to: string, orgName: string) {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.error('Email credentials not configured');
+    return { success: false, error: 'Config missing' };
+  }
+
+  const content = `
+    <h1 class="h1">Account Deleted</h1>
+    <p class="text">Your organization <strong>${orgName}</strong> and all associated data have been permanently deleted from Hourglass.</p>
+    <p class="text">The following data was removed:</p>
+    <ul style="color: #4B5563; font-size: 16px; line-height: 28px; padding-left: 24px; margin: 0 0 24px;">
+      <li>All employee accounts</li>
+      <li>All locations and geofencing data</li>
+      <li>All shifts and schedules</li>
+      <li>All time entries and clock-in records</li>
+      <li>Your admin account</li>
+    </ul>
+    <p class="text">If you did not request this deletion, please contact support immediately.</p>
+    <p class="text" style="color: #9CA3AF; font-size: 14px; margin-top: 32px;">This is an automated message. No further action is required.</p>
+  `;
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"Hourglass" <${process.env.GMAIL_USER}>`,
+      to,
+      subject: `Your Hourglass account has been deleted`,
+      html: getBaseTemplate(content),
+    });
+
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    console.error('Error sending account deleted email:', err);
     return { success: false, error: String(err) };
   }
 }

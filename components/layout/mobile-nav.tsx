@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import {
     Menu,
     LogOut,
@@ -12,8 +12,7 @@ import {
     Settings,
     FileText,
     Clock,
-    DollarSign,
-    Plane
+    DollarSign
 } from "lucide-react"
 import { auth } from "@/lib/firebase"
 import { signOut } from "firebase/auth"
@@ -29,7 +28,6 @@ const adminLinks = [
     { href: "/dashboard/admin/schedule", label: "Schedule", icon: Calendar },
     { href: "/dashboard/admin/locations", label: "Locations", icon: MapPin },
     { href: "/dashboard/admin/payroll", label: "Payroll", icon: DollarSign },
-    { href: "/dashboard/admin/time-off", label: "Time Off", icon: Plane },
     { href: "/dashboard/admin/reports", label: "Reports", icon: FileText },
     { href: "/dashboard/admin/settings", label: "Settings", icon: Settings },
 ]
@@ -38,7 +36,6 @@ const employeeLinks = [
     { href: "/dashboard/employee", label: "Clock In/Out", icon: Clock },
     { href: "/dashboard/employee/schedule", label: "My Schedule", icon: Calendar },
     { href: "/dashboard/employee/hours", label: "My Hours", icon: FileText },
-    { href: "/dashboard/employee/time-off", label: "Time Off", icon: Plane },
     { href: "/dashboard/employee/profile", label: "Profile", icon: Users },
 ]
 
@@ -62,6 +59,9 @@ export function MobileNav() {
                 </Button>
             </SheetTrigger>
             <SheetContent side="left" className="flex flex-col p-0 w-72">
+                <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation Menu</SheetTitle>
+                </SheetHeader>
                 <div className="flex h-16 items-center border-b px-6">
                     <Link href="/" className="flex items-center gap-2 font-semibold">
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">

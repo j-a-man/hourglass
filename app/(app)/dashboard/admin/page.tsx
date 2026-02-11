@@ -18,6 +18,19 @@ import { collection, query, where, getDocs, onSnapshot, orderBy, limit } from "f
 import { db } from "@/lib/firebase"
 import { format } from "date-fns"
 import { useAuth } from "@/components/auth-context"
+import { roundToNearest15, formatHoursMinutes, applyRounding, PayrollSettings } from "@/lib/services/payroll-service"
+import { doc, getDoc } from "firebase/firestore"
+
+/** Safely convert any Firestore timestamp variant to a JS Date */
+function toJsDate(val: any): Date | null {
+    if (!val) return null
+    if (val.toDate && typeof val.toDate === "function") return val.toDate()
+    if (typeof val.seconds === "number") return new Date(val.seconds * 1000)
+    try {
+        const d = new Date(val)
+        return isNaN(d.getTime()) ? null : d
+    } catch { return null }
+}
 
 export default function AdminDashboardPage() {
     const { userData } = useAuth()
@@ -53,6 +66,20 @@ export default function AdminDashboardPage() {
     const [locations, setLocations] = useState<any[]>([])
     const [selectedLocationId, setSelectedLocationId] = useState<string>("all")
     const [loading, setLoading] = useState(true)
+    const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>({ roundingInterval: 15, roundingBuffer: 5 })
+
+    // Fetch org settings for payroll
+    useEffect(() => {
+        if (!userData?.organizationId) return
+        getDoc(doc(db, "organizations", userData.organizationId)).then(snap => {
+            if (snap.exists()) {
+                const data = snap.data()
+                if (data.payrollSettings) {
+                    setPayrollSettings(data.payrollSettings)
+                }
+            }
+        })
+    }, [userData?.organizationId])
 
     useEffect(() => {
         if (!userData?.organizationId) return
@@ -156,22 +183,38 @@ export default function AdminDashboardPage() {
         }
 
         const unsubToday = onSnapshot(todayQuery, (snapshot) => {
-            let total = 0
+            let totalMinutes = 0
+            const now = new Date()
             snapshot.docs.forEach(doc => {
                 const data = doc.data()
-                if (data.clockInTime && data.clockOutTime) {
-                    const start = data.clockInTime.toDate ? data.clockInTime.toDate() : new Date(data.clockInTime);
-                    const end = data.clockOutTime.toDate ? data.clockOutTime.toDate() : new Date(data.clockOutTime);
+                const cin = toJsDate(data.clockInTime)
+                if (!cin) return
 
-                    if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-                        const diff = end.getTime() - start.getTime();
-                        total += diff / (1000 * 60 * 60);
+                if (data.clockOutTime) {
+                    const cout = toJsDate(data.clockOutTime)
+                    if (cout) {
+                        totalMinutes += (cout.getTime() - cin.getTime()) / (1000 * 60)
                     }
+                } else {
+                    // Currently clocked in — add running time
+                    totalMinutes += (now.getTime() - cin.getTime()) / (1000 * 60)
                 }
             })
+            totalMinutes = Math.max(0, totalMinutes)
+            const rounded = applyRounding(totalMinutes, payrollSettings.roundingInterval, payrollSettings.roundingBuffer)
+
+            let roundingDesc = "Exact time (No Rounding)"
+            if (payrollSettings.roundingInterval > 0) {
+                roundingDesc = `Rounded to nearest ${payrollSettings.roundingInterval} min`
+            }
+
             setMetrics(prev => ({
                 ...prev,
-                todayHours: { ...prev.todayHours, value: total.toFixed(1) }
+                todayHours: {
+                    ...prev.todayHours,
+                    value: formatHoursMinutes(rounded),
+                    description: roundingDesc
+                }
             }))
         })
 
@@ -180,7 +223,7 @@ export default function AdminDashboardPage() {
             unsubRecent()
             unsubToday()
         }
-    }, [selectedLocationId, userData?.organizationId])
+    }, [selectedLocationId, userData?.organizationId, payrollSettings.roundingInterval, payrollSettings.roundingBuffer])
 
     const selectedLocationName = selectedLocationId === "all"
         ? "All Locations"
@@ -366,7 +409,6 @@ export default function AdminDashboardPage() {
                             {[
                                 { label: "Generate Payroll", href: "/dashboard/admin/payroll" },
                                 { label: "Staff Scheduling", href: "/dashboard/admin/schedule" },
-                                { label: "Review Time Off", href: "/dashboard/admin/time-off" },
                                 { label: "Workplace Settings", href: "/dashboard/admin/settings" }
                             ].map((btn) => (
                                 <Link key={btn.label} href={btn.href}>

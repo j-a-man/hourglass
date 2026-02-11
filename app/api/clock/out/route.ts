@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { coordinates } = body;
+        const { coordinates, reason } = body;
 
         // 1. Fetch user data to get organizationId
         const userDoc = await getDoc(doc(db, "users", userId));
@@ -84,7 +84,8 @@ export async function POST(request: NextRequest) {
         const updateData: any = {
             clockOutTime: serverTimestamp(),
             clockOutLocation: coordinates,
-            clockOutIp: ipAddress
+            clockOutIp: ipAddress,
+            clockOutReason: reason || "manual"
         };
 
         // Only add flags if there are any

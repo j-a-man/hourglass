@@ -4,21 +4,13 @@ import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, Timestamp, deleteDoc, doc } from "firebase/firestore"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns"
-import { ChevronLeft, ChevronRight, User, MapPin, Trash2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, User, MapPin, Trash2, Clock } from "lucide-react"
 import { AddShiftDialog } from "@/components/add-shift-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-context"
-
-interface Shift {
-    id: string
-    userId: string
-    userName: string
-    locationId: string
-    locationName?: string
-    startTime: Timestamp
-    endTime: Timestamp
-}
+import { cn } from "@/lib/utils"
+import { getEffectiveShifts, EffectiveShift } from "@/lib/services/schedule-utils"
 
 interface AdminScheduleCalendarProps {
     locationId: string
@@ -27,7 +19,7 @@ interface AdminScheduleCalendarProps {
 export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps) {
     const { userData } = useAuth()
     const [currentDate, setCurrentDate] = useState(new Date())
-    const [shifts, setShifts] = useState<Shift[]>([])
+    const [shifts, setShifts] = useState<EffectiveShift[]>([])
     const [loading, setLoading] = useState(true)
 
     const fetchShifts = async () => {
@@ -35,28 +27,19 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
         const orgId = userData.organizationId
         setLoading(true)
         try {
-            // Get range for query
             const start = startOfMonth(currentDate)
             const end = endOfMonth(currentDate)
-
-            // Adjust query to include full weeks (buffer)
             const queryStart = startOfWeek(start)
             const queryEnd = endOfWeek(end)
 
-            const q = query(
-                collection(db, "organizations", orgId, "shifts"),
-                where("locationId", "==", locationId),
-                where("startTime", ">=", Timestamp.fromDate(queryStart)),
-                where("startTime", "<=", Timestamp.fromDate(queryEnd))
+            const effectiveShifts = await getEffectiveShifts(
+                orgId,
+                null,
+                queryStart,
+                queryEnd
             )
 
-            const snapshot = await getDocs(q)
-            const shiftsData = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            })) as Shift[]
-
-            setShifts(shiftsData)
+            setShifts(effectiveShifts.filter(s => s.locationId === locationId))
         } catch (error) {
             console.error("Error fetching shifts:", error)
         } finally {
@@ -65,7 +48,11 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
     }
 
     const handleDeleteShift = async (shiftId: string, e: React.MouseEvent) => {
-        e.stopPropagation() // Prevent triggering parent click events if any
+        e.stopPropagation()
+        if (shiftId.startsWith('virtual-')) {
+            toast.error("Recurring shifts must be managed in employee settings")
+            return
+        }
         if (!confirm("Are you sure you want to delete this shift?") || !userData?.organizationId) return
         const orgId = userData.organizationId
 
@@ -127,20 +114,20 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
             {/* GRID */}
             <div className="flex-1 grid grid-cols-7 auto-rows-fr">
                 {calendarDays.map((day, dayIdx) => {
-                    const dayShifts = shifts.filter(s => isSameDay(s.startTime.toDate(), day))
-                    dayShifts.sort((a, b) => a.startTime.toMillis() - b.startTime.toMillis())
+                    const dayShifts = shifts.filter(s => isSameDay(s.startTime, day))
+                    dayShifts.sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
 
                     return (
                         <div
                             key={day.toString()}
-                            className={`
-                                min-h-[80px] p-1.5 border-b border-r border-slate-200/50 relative group transition-colors
-                                ${!isSameMonth(day, monthStart) ? 'bg-slate-50/50 text-slate-400' : 'bg-white/20 text-slate-800'}
-                                ${isSameDay(day, new Date()) ? 'bg-indigo-50/80 ring-inset ring-2 ring-indigo-400' : ''}
-                            `}
+                            className={cn(
+                                "min-h-[80px] p-1.5 border-b border-r border-slate-200/50 relative group transition-colors",
+                                !isSameMonth(day, monthStart) ? 'bg-slate-50/50 text-slate-400' : 'bg-white/20 text-slate-800',
+                                isSameDay(day, new Date()) ? 'bg-indigo-50/80 ring-inset ring-2 ring-indigo-400' : ''
+                            )}
                         >
                             <div className="flex justify-between items-start mb-1">
-                                <span className={`text-xs font-semibold ml-1 ${!isSameMonth(day, monthStart) ? 'opacity-50' : ''}`}>
+                                <span className={cn("text-xs font-semibold ml-1", !isSameMonth(day, monthStart) && 'opacity-50')}>
                                     {format(day, "d")}
                                 </span>
 
@@ -160,23 +147,30 @@ export function AdminScheduleCalendar({ locationId }: AdminScheduleCalendarProps
                                 {dayShifts.map(shift => (
                                     <div
                                         key={shift.id}
-                                        className="group/shift text-xs p-2 rounded-md bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200 flex items-center justify-between transition-all cursor-default leading-tight relative"
+                                        className={cn(
+                                            "group/shift text-xs p-2 rounded-md border shadow-sm flex items-center justify-between transition-all cursor-default leading-tight relative",
+                                            shift.isVirtual
+                                                ? "bg-neutral-50 border-neutral-200 border-dashed"
+                                                : "bg-white border-slate-200 hover:shadow-md hover:border-indigo-200"
+                                        )}
                                     >
                                         <div className="flex items-center gap-2 overflow-hidden">
-                                            <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                                            <div className={cn("w-2 h-2 rounded-full shrink-0", shift.isVirtual ? "bg-neutral-300" : "bg-indigo-500")} />
                                             <div className="overflow-hidden">
                                                 <div className="font-bold text-slate-800 truncate">{shift.userName.split(' ')[0]}</div>
                                                 <div className="text-slate-500 truncate text-[10px] font-medium">
-                                                    {format(shift.startTime.toDate(), "h:mm a")} - {format(shift.endTime.toDate(), "h:mm a")}
+                                                    {format(shift.startTime, "h:mm a")} - {format(shift.endTime, "h:mm a")}
                                                 </div>
                                             </div>
                                         </div>
-                                        <button
-                                            onClick={(e) => handleDeleteShift(shift.id, e)}
-                                            className="opacity-0 group-hover/shift:opacity-100 p-1 hover:bg-red-50 hover:text-red-500 rounded transition-all text-slate-400"
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
+                                        {!shift.isVirtual && (
+                                            <button
+                                                onClick={(e) => handleDeleteShift(shift.id, e)}
+                                                className="opacity-0 group-hover/shift:opacity-100 p-1 hover:bg-red-50 hover:text-red-500 rounded transition-all text-slate-400"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>

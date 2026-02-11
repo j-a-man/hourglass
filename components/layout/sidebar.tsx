@@ -26,7 +26,6 @@ const adminLinks = [
     { href: "/dashboard/admin/schedule", label: "Schedule", icon: Calendar },
     { href: "/dashboard/admin/locations", label: "Locations", icon: MapPin },
     { href: "/dashboard/admin/payroll", label: "Payroll", icon: DollarSign },
-    { href: "/dashboard/admin/time-off", label: "Time Off", icon: Plane },
     { href: "/dashboard/admin/reports", label: "Reports", icon: FileText },
     { href: "/dashboard/admin/settings", label: "Settings", icon: Settings },
 ]
@@ -35,7 +34,6 @@ const employeeLinks = [
     { href: "/dashboard/employee", label: "Clock In/Out", icon: Clock },
     { href: "/dashboard/employee/schedule", label: "My Schedule", icon: Calendar },
     { href: "/dashboard/employee/hours", label: "My Hours", icon: FileText },
-    { href: "/dashboard/employee/time-off", label: "Time Off", icon: Plane },
     { href: "/dashboard/employee/profile", label: "Profile", icon: Users },
 ]
 

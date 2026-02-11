@@ -68,7 +68,7 @@ export default function AppLayout({
             <div className="flex flex-1 flex-col overflow-hidden">
                 {!isDeactivatedPage && <AppHeader />}
                 <main className={cn(
-                    "flex-1 overflow-y-auto p-4 md:p-8 lg:p-12",
+                    "flex-1 overflow-y-auto px-4 py-8 md:p-8 lg:p-12",
                     isDeactivatedPage && "flex items-center justify-center p-0"
                 )}>
                     {children}
