@@ -56,6 +56,8 @@ function RegisterPage() {
         setError("")
         setLoading(true)
 
+        const normalizedEmail = email.trim().toLowerCase();
+
         if (password !== confirmPassword) {
             setError("Passwords do not match")
             setLoading(false)
@@ -114,7 +116,7 @@ function RegisterPage() {
                 try {
                     const invQ = query(
                         collection(db, "organizations", finalOrgId, "invitations"),
-                        where("email", "==", email),
+                        where("email", "==", normalizedEmail),
                         where("status", "==", "pending")
                     )
                     const invSnapshot = await getDocs(invQ)
@@ -132,7 +134,7 @@ function RegisterPage() {
                 }
             } else {
                 // Fallback: Existing Invitation Logic
-                const q = query(collection(db, "invitations"), where("email", "==", email))
+                const q = query(collection(db, "invitations"), where("email", "==", normalizedEmail))
                 const querySnapshot = await getDocs(q)
 
                 if (querySnapshot.empty) {
@@ -154,7 +156,7 @@ function RegisterPage() {
             }
 
             // 2. Create Auth User
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+            const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password)
             const user = userCredential.user
             await updateProfile(user, { displayName: name })
 
@@ -179,7 +181,7 @@ function RegisterPage() {
             // 4. Create User Document
             const userDataToSet: any = {
                 uid: user.uid,
-                email: user.email,
+                email: normalizedEmail,
                 name: name,
                 role: finalRole,
                 organizationId: finalOrgId,

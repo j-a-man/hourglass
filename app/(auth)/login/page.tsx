@@ -28,7 +28,8 @@ export default function LoginPage() {
         setLoading(true)
 
         try {
-            const userCredential = await signInWithEmailAndPassword(auth, email, password)
+            const normalizedEmail = email.trim().toLowerCase();
+            const userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, password)
             const user = userCredential.user
 
             const userDoc = await getDoc(doc(db, "users", user.uid))

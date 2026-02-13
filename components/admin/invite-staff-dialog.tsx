@@ -72,8 +72,9 @@ export function InviteStaffDialog({ open, onOpenChange, onSuccess }: InviteStaff
 
         setLoading(true)
         try {
+            const normalizedEmail = email.trim().toLowerCase();
             const invitationData: any = {
-                email,
+                email: normalizedEmail,
                 role,
                 status: "pending",
                 inviterId: userData?.uid || '',
