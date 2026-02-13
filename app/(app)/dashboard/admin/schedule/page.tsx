@@ -6,12 +6,13 @@ import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, User, MoreHorizontal,
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/components/auth-context"
 import { getEffectiveShifts, EffectiveShift } from "@/lib/services/schedule-utils"
-import { collection, query, getDocs, where } from "firebase/firestore"
+import { collection, query, getDocs, where, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { format, startOfWeek, addDays, isSameDay, endOfWeek, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, isSameMonth } from "date-fns"
 import { Loader2 } from "lucide-react"
 import { AddShiftDialog } from "@/components/add-shift-dialog"
 import { EditShiftDialog } from "@/components/edit-shift-dialog"
+import { getIanaTz } from "@/lib/services/timezone-utils"
 
 type ViewMode = "week" | "month"
 
@@ -69,12 +70,17 @@ export default function AdminSchedulePage() {
                 const locs = locsSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name }))
                 setLocationTabs(locs)
 
+                // 2.2 Fetch Organization Timezone
+                const orgDoc = await getDoc(doc(db, "organizations", userData.organizationId))
+                const ianaTz = getIanaTz(orgDoc.data()?.timezone || "Eastern Standard Time (EST)")
+
                 // 3. Fetch effective shifts
                 const effectiveShifts = await getEffectiveShifts(
                     userData.organizationId,
                     null,
                     startOfCurrentRange,
                     endOfCurrentRange,
+                    ianaTz,
                     userMap
                 )
                 setShifts(effectiveShifts)
@@ -96,11 +102,15 @@ export default function AdminSchedulePage() {
         if (!userData?.organizationId) return
         setLoading(true)
         try {
+            const orgDoc = await getDoc(doc(db, "organizations", userData.organizationId))
+            const ianaTz = getIanaTz(orgDoc.data()?.timezone || "Eastern Standard Time (EST)")
+
             const effectiveShifts = await getEffectiveShifts(
                 userData.organizationId,
                 null,
                 startOfCurrentRange,
                 endOfCurrentRange,
+                ianaTz,
                 users
             )
             setShifts(effectiveShifts)

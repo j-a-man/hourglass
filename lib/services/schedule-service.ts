@@ -1,4 +1,5 @@
 import { format } from "date-fns"
+import { getLocalTime } from "./timezone-utils"
 
 export interface OperatingHours {
     isOpen: boolean;
@@ -13,19 +14,19 @@ export interface WeeklyHours {
 /**
  * Validates if the current time is within the operating hours for a given day.
  * @param hours The weekly schedule
+ * @param ianaTz The IANA timezone name for the organization
  * @param date The date to check against (defaults to now)
  */
-export function isWithinOperatingHours(hours: WeeklyHours, date: Date = new Date()): { isValid: boolean; reason?: string } {
+export function isWithinOperatingHours(hours: WeeklyHours, ianaTz: string = "America/New_York", date: Date = new Date()): { isValid: boolean; reason?: string } {
     if (!hours) return { isValid: true }; // If no hours set, assume open
 
-    const dayName = format(date, "EEEE").toLowerCase();
+    const { time: currentTime, day: dayName } = getLocalTime(ianaTz, date)
     const daySchedule = hours[dayName];
 
     if (!daySchedule || !daySchedule.isOpen) {
-        return { isValid: false, reason: `The workplace is closed on ${format(date, "EEEE")}.` };
+        const displayDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+        return { isValid: false, reason: `The workplace is closed on ${displayDay}.` };
     }
-
-    const currentTime = format(date, "HH:mm");
 
     // Simple string comparison for "HH:mm" works fine for daily hours
     if (currentTime < daySchedule.open) {

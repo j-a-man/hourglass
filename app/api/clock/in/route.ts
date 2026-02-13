@@ -5,6 +5,7 @@ import { isWithinOperatingHours } from '@/lib/services/schedule-service';
 import { getEffectiveShifts } from '@/lib/services/schedule-utils';
 import { db } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp, query, where, getDocs, limit, doc, getDoc } from 'firebase/firestore';
+import { getIanaTz, getTzDayRange } from '@/lib/services/timezone-utils';
 
 export async function POST(request: NextRequest) {
     try {
@@ -40,22 +41,24 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Location not found in your organization' }, { status: 404 });
         }
         const locationData = locDoc.data();
-        console.log(`[API/clock/in] Found location:`, locationData.name);
+
+        // 2.2 Fetch Organization Timezone
+        const orgDoc = await getDoc(doc(db, "organizations", orgId));
+        const orgData = orgDoc.data();
+        const ianaTz = getIanaTz(orgData?.timezone || "Eastern Standard Time (EST)");
+
+        console.log(`[API/clock/in] Found location: ${locationData.name}, TZ: ${ianaTz}`);
 
         // 2.5 Validation: Strict Shift Enforcement
         // Strategy:
         // A. If user has a shift today: MUST be within that shift's time (with buffer).
         // B. If user has NO shift today: MUST be within Location Operating Hours.
 
-        // Fetch today's effective shifts
+        // Fetch today's effective shifts using local day window
         const now = new Date();
-        // Look for shifts in a wide window for "today" to catch any edge cases
-        const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+        const { start: todayStart, end: todayEnd } = getTzDayRange(ianaTz, now);
 
-        // We need to import getEffectiveShifts dynamically or ensure it's available.
-        // Importing at top of file is better, but for this edit we assume imports are added.
-        console.log(`[API/clock/in] Fetching shifts for user ${userId} between ${todayStart.toISOString()} and ${todayEnd.toISOString()}`);
+        console.log(`[API/clock/in] Fetching shifts for user ${userId} between local start ${todayStart.toISOString()} and local end ${todayEnd.toISOString()}`);
         let shifts: any[] = [];
         try {
             shifts = await getEffectiveShifts(orgId, userId, todayStart, todayEnd);
@@ -65,21 +68,14 @@ export async function POST(request: NextRequest) {
         }
 
         // Check if there is a shift covering "now" or "soon"
-        // We allow clocking in 15 mins before shift starts
         const EARLY_BUFFER_MINUTES = 15;
-        const LATE_BUFFER_MINUTES = 30; // Can clock in up to 30 mins after shift ends? Or just strict end? 
-        // Usually you can clock in LATE for a shift, but not AFTER it ends.
 
         const activeShift = shifts.find(s => {
-            // Check if shift is for this location
             if (s.locationId !== locationId) return false;
 
-            // Time check
             const startBuffer = new Date(s.startTime);
             startBuffer.setMinutes(startBuffer.getMinutes() - EARLY_BUFFER_MINUTES);
-
             const endBuffer = new Date(s.endTime);
-            // endBuffer.setMinutes(endBuffer.getMinutes() + LATE_BUFFER_MINUTES); 
 
             return now >= startBuffer && now <= endBuffer;
         });
@@ -88,20 +84,24 @@ export async function POST(request: NextRequest) {
         console.log(`[API/clock/in] hasShiftToday: ${hasShiftToday}, activeShift found: ${!!activeShift}`);
 
         if (hasShiftToday) {
-            // User HAS a shift at this location today.
-            // They MUST be clocking in for that shift.
             if (!activeShift) {
-                // Determine why: Too early? Too late?
-                // Find the closest shift
-                const closest = shifts.find(s => s.locationId === locationId); // simplified
+                const closest = shifts.find(s => s.locationId === locationId);
                 let msg = "You have a scheduled shift today, but it is not currently active.";
                 if (closest) {
                     const startBuffer = new Date(closest.startTime);
                     startBuffer.setMinutes(startBuffer.getMinutes() - EARLY_BUFFER_MINUTES);
+
+                    const formatTzTime = (d: Date) => d.toLocaleTimeString('en-US', {
+                        timeZone: ianaTz,
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                    });
+
                     if (now < startBuffer) {
-                        msg = `You are too early for your shift. You can clock in starting at ${startBuffer.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
+                        msg = `You are too early for your shift. You can clock in starting at ${formatTzTime(startBuffer)}.`;
                     } else if (now > closest.endTime) {
-                        msg = `Your scheduled shift (${closest.startTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - ${closest.endTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}) has ended.`;
+                        msg = `Your scheduled shift (${formatTzTime(closest.startTime)} - ${formatTzTime(closest.endTime)}) has ended.`;
                     }
                 }
 
@@ -111,12 +111,9 @@ export async function POST(request: NextRequest) {
                     details: msg
                 }, { status: 403 });
             }
-            // If activeShift is found, proceed.
         } else {
-            // User has NO shift today at this location.
-            // Fallback: Check Operating Hours
             if (locationData.operatingHours) {
-                const scheduleCheck = isWithinOperatingHours(locationData.operatingHours);
+                const scheduleCheck = isWithinOperatingHours(locationData.operatingHours, ianaTz, now);
                 if (!scheduleCheck.isValid) {
                     console.log(`[API/clock/in] Blocking: Outside Operating Hours. Reason: ${scheduleCheck.reason}`);
                     return NextResponse.json({

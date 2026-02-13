@@ -1,6 +1,7 @@
-import { Timestamp, collection, getDocs, doc, getDoc, query, where } from "firebase/firestore"
+import { Timestamp, collection, getDocs, doc, getDoc, query, where, limit } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { format, isSameDay, startOfDay, addDays } from "date-fns"
+import { getIanaTz, getTzDayRange } from "./timezone-utils"
 
 export interface ShiftTemplate {
     enabled: boolean
@@ -35,6 +36,7 @@ export async function getEffectiveShifts(
     userId: string | null, // null for all users
     startDate: Date,
     endDate: Date,
+    ianaTz: string = "America/New_York",
     users?: Record<string, { name: string }> // Optional user map for names
 ): Promise<EffectiveShift[]> {
     const effectiveShifts: EffectiveShift[] = []
@@ -86,11 +88,14 @@ export async function getEffectiveShifts(
     }
 
     // 3. Generate Virtual Shifts for days without real shifts
-    let cursor = startOfDay(startDate)
-    const end = startOfDay(endDate)
-
-    while (cursor <= end) {
-        const dayKey = format(cursor, "eeee").toLowerCase()
+    // We iterate day-by-day in the target timezone
+    let current = new Date(startDate)
+    while (current <= endDate) {
+        // Get the local day name for 'current' in target TZ
+        const dayKey = new Intl.DateTimeFormat('en-US', {
+            timeZone: ianaTz,
+            weekday: 'long'
+        }).format(current).toLowerCase()
 
         // Determine which users to process
         const userIds = userId ? [userId] : Array.from(templatesMap.keys())
@@ -99,36 +104,56 @@ export async function getEffectiveShifts(
             const template = templatesMap.get(uid)
             if (!template || !template[dayKey]?.enabled) continue
 
-            // Check if this user already has a real shift today
-            const hasRealShift = realShifts.some(s =>
-                s.userId === uid && isSameDay(s.startTime, cursor)
-            )
+            // Check if this user already has a real shift on this specific calendar day in that TZ
+            const hasRealShift = realShifts.some(s => {
+                const sDate = new Intl.DateTimeFormat('en-CA', { timeZone: ianaTz }).format(s.startTime);
+                const cDate = new Intl.DateTimeFormat('en-CA', { timeZone: ianaTz }).format(current);
+                return s.userId === uid && sDate === cDate;
+            })
 
             if (!hasRealShift) {
                 const dayTemplate = template[dayKey]
                 const [startH, startM] = dayTemplate.start.split(":").map(Number)
                 const [endH, endM] = dayTemplate.end.split(":").map(Number)
 
-                const virtualStart = new Date(cursor)
-                virtualStart.setHours(startH, startM, 0, 0)
+                // Create the start/end as naive Date objects then adjust for TZ
+                const localDateStr = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: ianaTz,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                }).format(current)
 
-                const virtualEnd = new Date(cursor)
-                virtualEnd.setHours(endH, endM, 0, 0)
+                const virtualStart = new Date(`${localDateStr}T${dayTemplate.start}:00`)
+                const virtualEnd = new Date(`${localDateStr}T${dayTemplate.end}:00`)
+
+                // Final adjustment: These Date objects are currently "local to server". 
+                // We need them to be "local to IANA TZ" but correctly stored in UTC.
+                // The most reliable way is using a formatter-based builder or a library.
+                // Since we have getTzDayRange logic, we can use that pattern:
+
+                const constructTzDate = (isoStr: string) => {
+                    const temp = new Date(isoStr);
+                    const tzDate = new Date(temp.toLocaleString('en-US', { timeZone: ianaTz }))
+                    const utcDate = new Date(temp.toLocaleString('en-US', { timeZone: 'UTC' }))
+                    const offset = (tzDate.getTime() - utcDate.getTime()) / 60000
+                    return new Date(temp.getTime() - offset * 60 * 1000)
+                }
 
                 effectiveShifts.push({
-                    id: `virtual-${uid}-${format(cursor, "yyyy-MM-dd")}`,
+                    id: `virtual-${uid}-${localDateStr}`,
                     userId: uid,
                     userName: users?.[uid]?.name || "User",
                     locationId: dayTemplate.locationId,
                     locationName: dayTemplate.locationName,
-                    startTime: virtualStart,
-                    endTime: virtualEnd,
+                    startTime: constructTzDate(`${localDateStr}T${dayTemplate.start}:00`),
+                    endTime: constructTzDate(`${localDateStr}T${dayTemplate.end}:00`),
                     isVirtual: true,
                     status: "scheduled"
                 })
             }
         }
-        cursor = addDays(cursor, 1)
+        current = addDays(current, 1)
     }
 
     return [...realShifts, ...effectiveShifts].sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
@@ -141,37 +166,56 @@ export async function getAutoClockOutTime(
     organizationId: string,
     userId: string,
     locationId: string,
-    date: Date = new Date()
+    date: Date = new Date(),
+    ianaTz?: string
 ): Promise<Date | null> {
-    const dayStart = startOfDay(date)
-    const dayEnd = new Date(dayStart)
-    dayEnd.setHours(23, 59, 59, 999)
 
-    const shifts = await getEffectiveShifts(organizationId, userId, dayStart, dayEnd)
+    // Resolve TZ if not provided
+    let finalTz = ianaTz
+    if (!finalTz) {
+        const orgDoc = await getDoc(doc(db, "organizations", organizationId))
+        finalTz = getIanaTz(orgDoc.data()?.timezone || "Eastern Standard Time (EST)")
+    }
+
+    const { start: dayStart, end: dayEnd } = getTzDayRange(finalTz, date)
+
+    const shifts = await getEffectiveShifts(organizationId, userId, dayStart, dayEnd, finalTz)
 
     // If there's an active shift today, use its end time
     if (shifts.length > 0) {
-        // Find the latest shift end time today
         return shifts[shifts.length - 1].endTime
     }
 
     // Fallback: Use Location Operating Hours
     try {
-        const locationDoc = await getDocs(query(
-            collection(db, "organizations", organizationId, "locations"),
-            where("__name__", "==", locationId)
-        ))
+        const locDoc = await getDoc(doc(db, "organizations", organizationId, "locations", locationId))
 
-        if (!locationDoc.empty) {
-            const locData = locationDoc.docs[0].data()
-            const dayKey = format(date, "eeee").toLowerCase()
+        if (locDoc.exists()) {
+            const locData = locDoc.data()
+            const dayKey = new Intl.DateTimeFormat('en-US', {
+                timeZone: finalTz,
+                weekday: 'long'
+            }).format(date).toLowerCase()
+
             const dayHours = locData.operatingHours?.[dayKey]
 
             if (dayHours?.isOpen && dayHours.close) {
-                const [h, m] = dayHours.close.split(":").map(Number)
-                const closeTime = new Date(date)
-                closeTime.setHours(h, m, 0, 0)
-                return closeTime
+                const localDateStr = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: finalTz,
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                }).format(date)
+
+                const constructTzDate = (isoStr: string) => {
+                    const temp = new Date(isoStr);
+                    const tzDate = new Date(temp.toLocaleString('en-US', { timeZone: finalTz! }))
+                    const utcDate = new Date(temp.toLocaleString('en-US', { timeZone: 'UTC' }))
+                    const offset = (tzDate.getTime() - utcDate.getTime()) / 60000
+                    return new Date(temp.getTime() - offset * 60 * 1000)
+                }
+
+                return constructTzDate(`${localDateStr}T${dayHours.close}:00`)
             }
         }
     } catch (e) {

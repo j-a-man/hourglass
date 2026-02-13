@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Send } from "lucide-react"
+import { getIanaTz, getTzDayRange } from "@/lib/services/timezone-utils"
 
 export default function EmployeeDashboard() {
     const { user, userData } = useAuth()
@@ -98,26 +99,31 @@ export default function EmployeeDashboard() {
                     }
                 }
 
+                // 3.5 Fetch Organization Timezone for day boundaries
+                const orgDoc = await getDoc(doc(db, "organizations", orgId))
+                const ianaTz = getIanaTz(orgDoc.data()?.timezone || "Eastern Standard Time (EST)")
+
                 // 4. Fetch Next Shift
-                const tomorrow = addDays(new Date(), 1)
+                const { start: todayStart, end: dayWindowEnd } = getTzDayRange(ianaTz)
                 const nextShifts = await getEffectiveShifts(
                     orgId,
                     user.uid,
-                    startOfDay(new Date()),
-                    addDays(new Date(), 7)
+                    todayStart,
+                    addDays(todayStart, 7),
+                    ianaTz
                 )
                 setUpcomingShifts(nextShifts)
                 // Find first upcoming shift
                 const upcoming = nextShifts.find(s => isAfter(s.startTime, new Date()))
                 setNextShift(upcoming || null)
 
-                // 5. Fetch today's time entries to calculate hours worked today
-                const todayStart = startOfDay(new Date())
-                const todayEnd = endOfDay(new Date())
+                // 5. Fetch today's time entries using TZ-aligned boundaries
+                const { start: tzTodayStart, end: tzTodayEnd } = getTzDayRange(ianaTz)
                 const todayQ = query(
                     collection(db, "organizations", orgId, "time_entries"),
                     where("employeeId", "==", user.uid),
-                    where("clockInTime", ">=", todayStart)
+                    where("clockInTime", ">=", tzTodayStart),
+                    where("clockInTime", "<=", tzTodayEnd)
                 )
                 const todaySnap = await getDocs(todayQ)
                 let completed = 0
